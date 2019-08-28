@@ -55,7 +55,9 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.prestosql.spi.type.BigintType.BIGINT;
+import static com.google.common.collect.Maps.immutableEntry;
 import static io.prestosql.sql.planner.plan.AggregationNode.singleGroupingSet;
+import static io.prestosql.sql.planner.plan.Assignments.toAssignments;
 import static io.prestosql.sql.tree.ComparisonExpression.Operator.EQUAL;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
@@ -424,13 +426,19 @@ public class PlanNodeDecorrelator
             }
 
             DecorrelationResult childDecorrelationResult = childDecorrelationResultOptional.get();
-            Set<Symbol> nodeOutputSymbols = ImmutableSet.copyOf(node.getOutputSymbols());
+
+            SymbolMapper mapper = childDecorrelationResult.getCorrelatedSymbolMapper();
+            Assignments decorrelatedAssignments = node.getAssignments().entrySet().stream()
+                    .map(entry -> immutableEntry(mapper.map(entry.getKey()), mapper.map(entry.getValue())))
+                    .collect(toAssignments());
+
+            Set<Symbol> nodeOutputSymbols = ImmutableSet.copyOf(decorrelatedAssignments.getOutputs());
             List<Symbol> symbolsToAdd = childDecorrelationResult.symbolsToPropagate.stream()
                     .filter(symbol -> !nodeOutputSymbols.contains(symbol))
                     .collect(toImmutableList());
 
             Assignments assignments = Assignments.builder()
-                    .putAll(node.getAssignments())
+                    .putAll(decorrelatedAssignments)
                     .putIdentities(symbolsToAdd)
                     .build();
 

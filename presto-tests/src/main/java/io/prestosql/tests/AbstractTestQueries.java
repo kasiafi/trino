@@ -3506,10 +3506,7 @@ public abstract class AbstractTestQueries
         assertQuery("SELECT name FROM nation n WHERE 'AFRICA' = (SELECT name FROM region WHERE regionkey = n.regionkey)");
 
         // same correlation in predicate and projection
-        assertQueryFails(
-                "SELECT nationkey FROM nation n WHERE " +
-                        "(SELECT n.regionkey * 2 FROM region r WHERE n.regionkey = r.regionkey) > 6",
-                UNSUPPORTED_CORRELATED_SUBQUERY_ERROR_MSG);
+        assertQuery("SELECT nationkey FROM nation n WHERE (SELECT n.regionkey * 2 FROM region r WHERE n.regionkey = r.regionkey) > 6");
 
         // different correlation in predicate and projection
         assertQueryFails(

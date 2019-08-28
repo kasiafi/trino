@@ -316,6 +316,66 @@ public class TestSubqueries
     }
 
     @Test
+    public void testHowDecorrelatingProjectionsBreaksThings()
+    {
+        // An attempt to output plain correlation symbol from subquery results in outputting the symbol from input,
+        // effectively by-passing the filter.
+        assertions.assertQuery(
+                "SELECT (SELECT b FROM (VALUES 1) inner_relation(a) WHERE a = b AND a > 1) FROM (VALUES 1) outer_relation(b)",
+                "VALUES 1"); // should be "VALUES null"
+        assertions.assertQuery(
+                "SELECT (SELECT b FROM (VALUES 1) inner_relation(a) WHERE a = b) FROM (VALUES 1, 2) outer_relation(b)",
+                "VALUES 1, 2"); // should be "VALUES 1, null"
+
+        // The following query won't decorrelate... This is because the filter condition got optimised to "false"
+        // and the symbol mapping(b -> a) can no more be derived.
+        // This shouldn't have to fail, though, but could be optimised basing on the fact that subquery returns empty result.
+        assertions.assertFails(
+                "SELECT (SELECT b FROM (VALUES 1) inner_relation(a) WHERE a = b AND 0 = 1) FROM (VALUES 1) outer_relation(b)",
+                UNSUPPORTED_CORRELATED_SUBQUERY_ERROR_MSG); // should be "VALUES null"
+
+        // Non-identity projection on correlation symbol works fine
+        assertions.assertQuery(
+                "SELECT (SELECT b + 1 FROM (VALUES 1) inner_relation(a) WHERE a = b) FROM (VALUES 1, 2) outer_relation(b)",
+                "VALUES 2, null");
+        assertions.assertQuery(
+                "SELECT (SELECT b + 1 FROM (VALUES 1, null) inner_relation(a) WHERE a = b) FROM (VALUES 1, 2, null) outer_relation(b)",
+                "VALUES 2, null, null");
+        assertions.assertQuery(
+                "SELECT (SELECT b * 1 FROM (VALUES 1) inner_relation(a) WHERE a = b) FROM (VALUES 1, 2) outer_relation(b)",
+                "VALUES 1, null");
+
+        // Expression with correlated and non-correlated symbols in projection works fine, too
+        assertions.assertQuery(
+                "SELECT (SELECT (c + a) * b FROM (VALUES (1, 1), (2, 2), (3, null)) inner_relation(a, b) WHERE a = c) FROM (VALUES 1, null) outer_relation(c)",
+                "VALUES 2, null");
+        assertions.assertQuery(
+                "SELECT (SELECT c * a FROM (VALUES (1, 1.0)) inner_relation(a, b) WHERE a = c AND b = c) FROM (VALUES 1, 2) outer_relation(c)",
+                "VALUES 1, null");
+
+        // As expected, symbol mapping for decorrelation cannot be derived from predicate with equality comparison involving cast
+        assertions.assertFails(
+                "SELECT (SELECT b + 1 FROM (VALUES 1.0) inner_relation(a) WHERE a = b) FROM (VALUES 1, 2) outer_relation(b)",
+                UNSUPPORTED_CORRELATED_SUBQUERY_ERROR_MSG);
+        assertions.assertFails(
+                "SELECT (SELECT b + 1 FROM (VALUES 1) inner_relation(a) WHERE a = b) FROM (VALUES 1.0, 2.0) outer_relation(b)",
+                UNSUPPORTED_CORRELATED_SUBQUERY_ERROR_MSG);
+        assertions.assertFails(
+                "SELECT (SELECT b + 1 FROM (VALUES 1) inner_relation(a) WHERE a = b) FROM (VALUES null) outer_relation(b)",
+                UNSUPPORTED_CORRELATED_SUBQUERY_ERROR_MSG);
+
+        // Other cases when decorrelation fails as expected
+        // non-equality predicate
+        assertions.assertFails(
+                "SELECT (SELECT b + 1 FROM (VALUES 1) inner_relation(a) WHERE a < b) FROM (VALUES 1, 2) outer_relation(b)",
+                UNSUPPORTED_CORRELATED_SUBQUERY_ERROR_MSG);
+        // projection including correlation symbol not present in a predicate
+        assertions.assertFails(
+                "SELECT (SELECT c + 1 FROM (VALUES true) inner_relation(a) WHERE a = b) FROM (VALUES (true, 1), (false, 2)) outer_relation(b, c)",
+                UNSUPPORTED_CORRELATED_SUBQUERY_ERROR_MSG);
+    }
+
+    @Test
     public void testLateralWithUnnest()
     {
         assertions.assertFails(

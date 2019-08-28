@@ -140,7 +140,7 @@ public class Assignments
         return true;
     }
 
-    private Collector<Entry<Symbol, Expression>, Builder, Assignments> toAssignments()
+    public static Collector<Entry<Symbol, Expression>, Builder, Assignments> toAssignments()
     {
         return Collector.of(
                 Assignments::builder,
