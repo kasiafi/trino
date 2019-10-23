@@ -3524,7 +3524,7 @@ public abstract class AbstractTestQueries
         // correlation used in subquery output
         assertQueryFails(
                 "SELECT name FROM nation n WHERE 'AFRICA' = (SELECT n.name FROM region WHERE regionkey > n.regionkey)",
-                UNSUPPORTED_CORRELATED_SUBQUERY_ERROR_MSG);
+                ".* outer scope field n.name in SELECT clause not supported");
 
         assertQuery(
                 "SELECT (SELECT 2 WHERE o.orderkey = 1) FROM orders o ORDER BY orderkey LIMIT 5",
@@ -3532,7 +3532,7 @@ public abstract class AbstractTestQueries
         // outputs plain correlated orderkey symbol which causes ambiguity with outer query orderkey symbol
         assertQueryFails(
                 "SELECT (SELECT o.orderkey WHERE o.orderkey = 1) FROM orders o ORDER BY orderkey LIMIT 5",
-                UNSUPPORTED_CORRELATED_SUBQUERY_ERROR_MSG);
+                ".* outer scope field o.orderkey in SELECT clause not supported");
         assertQueryFails(
                 "SELECT (SELECT o.orderkey * 2 WHERE o.orderkey = 1) FROM orders o ORDER BY orderkey LIMIT 5",
                 UNSUPPORTED_CORRELATED_SUBQUERY_ERROR_MSG);

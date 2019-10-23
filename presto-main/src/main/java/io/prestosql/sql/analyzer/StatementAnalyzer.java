@@ -2059,6 +2059,12 @@ class StatementAnalyzer
                 ImmutableList.Builder<SelectExpression> selectExpressionBuilder)
         {
             Expression expression = singleColumn.getExpression();
+            // TODO support direct field reference from outer scope in SELECT
+            // direct field reference from outer scope not supported
+            Optional<ResolvedField> field = scope.tryResolveField(expression);
+            if (field.isPresent() && !field.get().isLocal()) {
+                throw semanticException(NOT_SUPPORTED, expression, "outer scope field %s in SELECT clause not supported", expression);
+            }
             ExpressionAnalysis expressionAnalysis = analyzeExpression(expression, scope);
             analysis.recordSubqueries(node, expressionAnalysis);
             outputExpressionBuilder.add(expression);

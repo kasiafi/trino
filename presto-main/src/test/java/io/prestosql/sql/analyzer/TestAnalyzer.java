@@ -293,6 +293,20 @@ public class TestAnalyzer
     }
 
     @Test
+    public void testSelectOuterScopeField()
+    {
+        assertFails("SELECT (SELECT a FROM (VALUES 1)) FROM t1")
+                .hasErrorCode(NOT_SUPPORTED);
+        assertFails("SELECT (SELECT t2.a FROM t1) FROM t2")
+                .hasErrorCode(NOT_SUPPORTED);
+        analyze("SELECT (SELECT a FROM t1) FROM t2");
+        assertFails("SELECT a, (SELECT a WHERE false) FROM (VALUES 1) t(a)")
+                .hasErrorCode(NOT_SUPPORTED);
+        assertFails("SELECT * FROM (VALUES 1, 2, 3) outer_relation(b), LATERAL (SELECT b FROM (VALUES b)) inner_relation(a)")
+                .hasErrorCode(NOT_SUPPORTED);
+    }
+
+    @Test
     public void testGroupByWithWildcard()
     {
         assertFails("SELECT * FROM t1 GROUP BY 1")
