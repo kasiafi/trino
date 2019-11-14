@@ -454,6 +454,133 @@ public class PlanNodeDecorrelator
                     childDecorrelationResult.atMostSingleRow));
         }
 
+        /*@Override
+        public Optional<DecorrelationResult> visitJoin(JoinNode node, Void context)
+        {
+            Optional<DecorrelationResult> leftDecorrelationResultOptional = node.getLeft().accept(this, null);
+            if (!leftDecorrelationResultOptional.isPresent()) {
+                return Optional.empty();
+            }
+            DecorrelationResult leftDecorrelationResult = leftDecorrelationResultOptional.get();
+            List<Expression> leftPredicates = leftDecorrelationResult.correlatedPredicates;
+
+            Optional<DecorrelationResult> rightDecorrelationResultOptional = node.getRight().accept(this, null);
+            if (!rightDecorrelationResultOptional.isPresent()) {
+                return Optional.empty();
+            }
+            DecorrelationResult rightDecorrelationResult = rightDecorrelationResultOptional.get();
+            List<Expression> rightPredicates = rightDecorrelationResult.correlatedPredicates;
+
+            List<Expression> correlatedSourcesPredicates = ImmutableList.of();
+            switch (node.getType()) {
+                case INNER:
+                    correlatedSourcesPredicates = ImmutableList.<Expression>builder()
+                            .addAll(leftPredicates)
+                            .addAll(rightPredicates)
+                            .build();
+                    break;
+                case LEFT:
+                    *//*if (!rightPredicates.isEmpty()) {
+                        return Optional.empty();
+                    }*//*
+                    correlatedSourcesPredicates = ImmutableList.copyOf(leftPredicates);
+                    break;
+                case RIGHT:
+                    *//*if (!leftPredicates.isEmpty()) {
+                        return Optional.empty();
+                    }*//*
+                    correlatedSourcesPredicates = ImmutableList.copyOf(rightPredicates);
+                    break;
+                case FULL:
+                    *//*if (!leftPredicates.isEmpty() || !rightPredicates.isEmpty()) {
+                        return Optional.empty();
+                    }*//*
+            }
+
+            List<Expression> correlatedJoinFilterPredicates = ImmutableList.of();
+            List<Expression> uncorrelatedJoinFilterPredicates = ImmutableList.of();
+            Optional<Expression> joinFilter = node.getFilter();
+            if (joinFilter.isPresent()) {
+                Map<Boolean, List<Expression>> predicates = ExpressionUtils.extractConjuncts(joinFilter.get()).stream()
+                        .collect(Collectors.partitioningBy(PlanNodeDecorrelator.DecorrelatingVisitor.this::isCorrelated));
+                correlatedJoinFilterPredicates = ImmutableList.copyOf(predicates.get(true));
+                uncorrelatedJoinFilterPredicates = ImmutableList.copyOf(predicates.get(false));
+            }
+
+            Set<Symbol> correlationSet = ImmutableSet.copyOf(correlation);
+            ImmutableList.Builder<Expression> correlatedJoinCriteriaPredicates = ImmutableList.builder();
+            ImmutableList.Builder<JoinNode.EquiJoinClause> uncorrelatedJoinCriteria = ImmutableList.builder();
+            for (JoinNode.EquiJoinClause clause : node.getCriteria()) {
+                if (correlationSet.contains(clause.getLeft()) || correlationSet.contains(clause.getRight())) {
+                    correlatedJoinCriteriaPredicates.add(clause.toExpression());
+                }
+                else {
+                    uncorrelatedJoinCriteria.add(clause);
+                }
+            }
+
+            Set<Symbol> joinFilterAndCriteriaSymbols = ImmutableSet.<Symbol>builder()
+                    .addAll(SymbolsExtractor.extractUnique(correlatedJoinFilterPredicates))
+                    .addAll(SymbolsExtractor.extractUnique(correlatedJoinCriteriaPredicates.build()))
+                    .build();
+            Set<Symbol> joinFilterAndCriteriaSymbolsToPropagate = Sets.difference(joinFilterAndCriteriaSymbols, correlationSet);
+
+            Set<Symbol> leftOuputSymbols = ImmutableSet.copyOf(node.getLeft().getOutputSymbols());
+            Set<Symbol> rightOuputSymbols = ImmutableSet.copyOf(node.getRight().getOutputSymbols());
+            switch (node.getType()) {
+                case LEFT:
+                    if (!leftOuputSymbols.containsAll(joinFilterAndCriteriaSymbols)) {
+                        return Optional.empty();
+                    }
+                case RIGHT:
+                    if (!rightOuputSymbols.containsAll(joinFilterAndCriteriaSymbols)) {
+                        return Optional.empty();
+                    }
+                case FULL:
+                    if (!joinFilterAndCriteriaSymbols.isEmpty()) {
+                        return Optional.empty();
+                    }
+            }
+
+            return Optional.of(new DecorrelationResult(
+                    new JoinNode(
+                            node.getId(),
+                            node.getType(),
+                            leftDecorrelationResult.node,
+                            rightDecorrelationResult.node,
+                            uncorrelatedJoinCriteria.build(),
+                            ImmutableList.copyOf(Sets.intersection(
+                                    ImmutableSet.copyOf(node.getOutputSymbols()),
+                                    ImmutableSet.builder()
+                                            .addAll(leftDecorrelationResult.node.getOutputSymbols())
+                                            .addAll(rightDecorrelationResult.node.getOutputSymbols())
+                                            .build())),
+                            //ImmutableList.of(),
+                            Optional.of(ExpressionUtils.combineConjuncts(metadata, uncorrelatedJoinFilterPredicates)),
+                            Optional.empty(), //todo retain
+                            Optional.empty(), //todo retain
+                            Optional.empty(), //todo ?
+                            Optional.empty(), //todo ?
+                            ImmutableMap.of()), //todo ?
+                    ImmutableSet.<Symbol>builder()
+                            .addAll(leftDecorrelationResult.symbolsToPropagate)
+                            .addAll(rightDecorrelationResult.symbolsToPropagate)
+                            .addAll(joinFilterAndCriteriaSymbolsToPropagate)
+                            .build(),
+                    ImmutableList.<Expression>builder()
+                            .addAll(correlatedSourcesPredicates)
+                            .addAll(correlatedJoinFilterPredicates)
+                            .addAll(correlatedJoinCriteriaPredicates.build())
+                            .build(),
+                    ImmutableMultimap.<Symbol, Symbol>builder()
+                            .putAll(leftDecorrelationResult.correlatedSymbolsMapping)
+                            .putAll(rightDecorrelationResult.correlatedSymbolsMapping)
+                            .putAll(extractCorrelatedSymbolsMapping(correlatedJoinFilterPredicates))
+                            .putAll(extractCorrelatedSymbolsMapping(correlatedJoinCriteriaPredicates.build()))
+                            .build(),
+                    leftDecorrelationResult.atMostSingleRow && rightDecorrelationResult.atMostSingleRow));
+        }*/
+
         private Multimap<Symbol, Symbol> extractCorrelatedSymbolsMapping(List<Expression> correlatedConjuncts)
         {
             // TODO: handle coercions and non-direct column references
