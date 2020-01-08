@@ -407,7 +407,7 @@ public final class SortedRangeSet
                 }
 
                 if (current.overlaps(next) || current.getHigh().isAdjacent(next.getLow())) {
-                    current = current.span(next);
+                    current = current.span(next); //todo may implicitly add NaN
                 }
                 else {
                     result.put(current.getLow(), current);

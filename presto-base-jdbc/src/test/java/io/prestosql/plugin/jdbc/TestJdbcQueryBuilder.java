@@ -69,6 +69,7 @@ import static io.prestosql.spi.type.TimestampType.TIMESTAMP;
 import static io.prestosql.spi.type.TinyintType.TINYINT;
 import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static io.prestosql.testing.TestingConnectorSession.SESSION;
+import static java.lang.Float.floatToIntBits;
 import static java.lang.Float.floatToRawIntBits;
 import static java.lang.String.format;
 import static java.time.temporal.ChronoUnit.DAYS;
@@ -157,6 +158,28 @@ public class TestJdbcQueryBuilder
             throws Exception
     {
         database.close();
+    }
+
+    @Test
+    public void testNaN()
+            throws SQLException
+    {
+        TupleDomain<ColumnHandle> tupleDomain = TupleDomain.withColumnDomains(ImmutableMap.<ColumnHandle, Domain>builder()
+                .put(columns.get(11), Domain.create(SortedRangeSet.copyOf(REAL,
+                        ImmutableList.of(
+                                Range.lessThan(REAL, (long) floatToIntBits(Float.NaN)))),
+                        false))
+                .build());
+
+        Connection connection = database.getConnection();
+        try (PreparedStatement preparedStatement = new QueryBuilder("\"").buildSql(jdbcClient, SESSION, connection, "", "", "test_table", columns, tupleDomain, Optional.empty(), identity());
+                ResultSet resultSet = preparedStatement.executeQuery()) {
+            ImmutableSet.Builder<Long> builder = ImmutableSet.builder();
+            while (resultSet.next()) {
+                builder.add((Long) resultSet.getObject("col_0"));
+            }
+            assertEquals(builder.build(), ImmutableSet.of(68L, 180L, 196L));
+        }
     }
 
     @Test
