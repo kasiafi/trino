@@ -26,13 +26,11 @@ import io.prestosql.sql.planner.plan.PlanNode;
 import io.prestosql.sql.planner.plan.ProjectNode;
 import io.prestosql.sql.tree.Expression;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.prestosql.sql.planner.DeterminismEvaluator.isDeterministic;
 import static io.prestosql.sql.planner.SymbolsExtractor.extractUnique;
@@ -96,9 +94,6 @@ public final class PushProjectionThroughJoin
 
         Assignments leftAssignments = leftAssignmentsBuilder.build();
         Assignments rightAssignments = rightAssignmentsBuilder.build();
-        List<Symbol> outputSymbols = Streams.concat(leftAssignments.getOutputs().stream(), rightAssignments.getOutputs().stream())
-                .filter(ImmutableSet.copyOf(projectNode.getOutputSymbols())::contains)
-                .collect(toImmutableList());
 
         return Optional.of(new JoinNode(
                 joinNode.getId(),
@@ -110,7 +105,7 @@ public final class PushProjectionThroughJoin
                         new ProjectNode(planNodeIdAllocator.getNextId(), rightChild, rightAssignments),
                         lookup),
                 joinNode.getCriteria(),
-                outputSymbols,
+                projectNode.getOutputSymbols(),
                 joinNode.getFilter(),
                 joinNode.getLeftHashSymbol(),
                 joinNode.getRightHashSymbol(),
