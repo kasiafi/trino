@@ -144,7 +144,7 @@ public class JoinNode
                 right,
                 left,
                 flipJoinCriteria(criteria),
-                flipOutputSymbols(getOutputSymbols(), left, right),
+                outputSymbols,
                 filter,
                 rightHashSymbol,
                 leftHashSymbol,
