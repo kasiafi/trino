@@ -64,7 +64,7 @@ public class TestPruneJoinColumns
     }
 
     @Test
-    public void testCrossJoinDoesNotFire()
+    public void testCrossJoin()
     {
         tester().assertThat(new PruneJoinColumns())
                 .on(p -> {
@@ -82,7 +82,16 @@ public class TestPruneJoinColumns
                                     Optional.empty(),
                                     Optional.empty()));
                 })
-                .doesNotFire();
+                .matches(
+                        strictProject(
+                                ImmutableMap.of(),
+                                join(
+                                        JoinNode.Type.INNER,
+                                        ImmutableList.of(),
+                                        Optional.empty(),
+                                        values(ImmutableList.of("leftValue")),
+                                        values(ImmutableList.of("rightValue")))
+                                        .withExactOutputs()));
     }
 
     private static PlanNode buildProjectedJoin(PlanBuilder p, Predicate<Symbol> projectionFilter)

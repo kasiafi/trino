@@ -65,9 +65,9 @@ public class TestPruneJoinChildrenColumns
     }
 
     @Test
-    public void testCrossJoinDoesNotFire()
+    public void testCrossJoin()
     {
-        tester().assertThat(new PruneJoinColumns())
+        tester().assertThat(new PruneJoinChildrenColumns())
                 .on(p -> {
                     Symbol leftValue = p.symbol("leftValue");
                     Symbol rightValue = p.symbol("rightValue");
@@ -76,12 +76,20 @@ public class TestPruneJoinChildrenColumns
                             p.values(leftValue),
                             p.values(rightValue),
                             ImmutableList.of(),
-                            ImmutableList.of(leftValue, rightValue),
+                            ImmutableList.of(leftValue),
                             Optional.empty(),
                             Optional.empty(),
                             Optional.empty());
                 })
-                .doesNotFire();
+                .matches(
+                        join(
+                                JoinNode.Type.INNER,
+                                ImmutableList.of(),
+                                Optional.empty(),
+                                values("leftValue"),
+                                strictProject(
+                                        ImmutableMap.of(),
+                                        values("rightValue"))));
     }
 
     private static PlanNode buildJoin(PlanBuilder p, Predicate<Symbol> joinOutputFilter)
