@@ -55,7 +55,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -312,18 +311,13 @@ public class ReorderJoins
 
             PlanNode right = rightResult.planNode.orElseThrow(() -> new VerifyException("Plan node is not present"));
 
-            // sort output symbols so that the left input symbols are first
-            List<Symbol> sortedOutputSymbols = Stream.concat(left.getOutputSymbols().stream(), right.getOutputSymbols().stream())
-                    .filter(outputSymbols::contains)
-                    .collect(toImmutableList());
-
             return setJoinNodeProperties(new JoinNode(
                     idAllocator.getNextId(),
                     INNER,
                     left,
                     right,
                     joinConditions,
-                    sortedOutputSymbols,
+                    outputSymbols,
                     joinFilters.isEmpty() ? Optional.empty() : Optional.of(and(joinFilters)),
                     Optional.empty(),
                     Optional.empty(),
