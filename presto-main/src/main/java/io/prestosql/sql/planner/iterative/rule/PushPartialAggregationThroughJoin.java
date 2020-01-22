@@ -37,7 +37,6 @@ import java.util.stream.Collectors;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Sets.intersection;
 import static io.prestosql.SystemSessionProperties.isPushAggregationThroughJoin;
-import static io.prestosql.sql.planner.iterative.rule.Util.restrictOutputs;
 import static io.prestosql.sql.planner.plan.AggregationNode.Step.PARTIAL;
 import static io.prestosql.sql.planner.plan.AggregationNode.singleGroupingSet;
 import static io.prestosql.sql.planner.plan.Patterns.aggregation;
@@ -90,10 +89,10 @@ public class PushPartialAggregationThroughJoin
 
         // TODO: leave partial aggregation above Join?
         if (allAggregationsOn(aggregationNode.getAggregations(), joinNode.getLeft().getOutputSymbols())) {
-            return Result.ofPlanNode(pushPartialToLeftChild(aggregationNode, joinNode, context));
+            return Result.ofPlanNode(pushPartialToLeftChild(aggregationNode, joinNode));
         }
         if (allAggregationsOn(aggregationNode.getAggregations(), joinNode.getRight().getOutputSymbols())) {
-            return Result.ofPlanNode(pushPartialToRightChild(aggregationNode, joinNode, context));
+            return Result.ofPlanNode(pushPartialToRightChild(aggregationNode, joinNode));
         }
 
         return Result.empty();
@@ -108,20 +107,20 @@ public class PushPartialAggregationThroughJoin
         return symbols.containsAll(inputs);
     }
 
-    private PlanNode pushPartialToLeftChild(AggregationNode node, JoinNode child, Context context)
+    private PlanNode pushPartialToLeftChild(AggregationNode node, JoinNode child)
     {
         Set<Symbol> joinLeftChildSymbols = ImmutableSet.copyOf(child.getLeft().getOutputSymbols());
         List<Symbol> groupingSet = getPushedDownGroupingSet(node, joinLeftChildSymbols, intersection(getJoinRequiredSymbols(child), joinLeftChildSymbols));
         AggregationNode pushedAggregation = replaceAggregationSource(node, child.getLeft(), groupingSet);
-        return pushPartialToJoin(node, child, pushedAggregation, child.getRight(), context);
+        return pushPartialToJoin(node, child, pushedAggregation, child.getRight());
     }
 
-    private PlanNode pushPartialToRightChild(AggregationNode node, JoinNode child, Context context)
+    private PlanNode pushPartialToRightChild(AggregationNode node, JoinNode child)
     {
         Set<Symbol> joinRightChildSymbols = ImmutableSet.copyOf(child.getRight().getOutputSymbols());
         List<Symbol> groupingSet = getPushedDownGroupingSet(node, joinRightChildSymbols, intersection(getJoinRequiredSymbols(child), joinRightChildSymbols));
         AggregationNode pushedAggregation = replaceAggregationSource(node, child.getRight(), groupingSet);
-        return pushPartialToJoin(node, child, child.getLeft(), pushedAggregation, context);
+        return pushPartialToJoin(node, child, child.getLeft(), pushedAggregation);
     }
 
     private Set<Symbol> getJoinRequiredSymbols(JoinNode node)
@@ -173,25 +172,20 @@ public class PushPartialAggregationThroughJoin
             AggregationNode aggregation,
             JoinNode child,
             PlanNode leftChild,
-            PlanNode rightChild,
-            Context context)
+            PlanNode rightChild)
     {
-        JoinNode joinNode = new JoinNode(
+        return new JoinNode(
                 child.getId(),
                 child.getType(),
                 leftChild,
                 rightChild,
                 child.getCriteria(),
-                ImmutableList.<Symbol>builder()
-                        .addAll(leftChild.getOutputSymbols())
-                        .addAll(rightChild.getOutputSymbols())
-                        .build(),
+                aggregation.getOutputSymbols(),
                 child.getFilter(),
                 child.getLeftHashSymbol(),
                 child.getRightHashSymbol(),
                 child.getDistributionType(),
                 child.isSpillable(),
                 child.getDynamicFilters());
-        return restrictOutputs(context.getIdAllocator(), joinNode, ImmutableSet.copyOf(aggregation.getOutputSymbols())).orElse(joinNode);
     }
 }
