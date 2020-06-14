@@ -146,7 +146,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitAggregation(AggregationNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             AggregationNode rewrittenAggregation = mapper.map(node, rewrittenSource.getRoot());
 
@@ -157,7 +157,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitGroupId(GroupIdNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             GroupIdNode rewrittenGroupId = mapper.map(node, rewrittenSource.getRoot());
 
@@ -168,7 +168,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitExplainAnalyze(ExplainAnalyzeNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             Symbol newOutputSymbol = mapper.map(node.getOutputSymbol());
 
@@ -181,7 +181,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitMarkDistinct(MarkDistinctNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             Symbol newMarkerSymbol = mapper.map(node.getMarkerSymbol());
             List<Symbol> newDistinctSymbols = mapper.mapAndDistinct(node.getDistinctSymbols());
@@ -201,7 +201,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitUnnest(UnnestNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             List<Symbol> newReplicateSymbols = mapper.mapAndDistinct(node.getReplicateSymbols());
 
@@ -229,7 +229,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitWindow(WindowNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             WindowNode rewrittenWindow = mapper.map(node, rewrittenSource.getRoot());
 
@@ -239,7 +239,7 @@ public class UnaliasSymbolReferences
         @Override
         public PlanAndMappings visitTableScan(TableScanNode node, UnaliasContext context)
         {
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, context.getCorrelationMapping(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(context.getCorrelationMapping());
 
             List<Symbol> newOutputs = mapper.map(node.getOutputSymbols());
 
@@ -263,13 +263,13 @@ public class UnaliasSymbolReferences
             for (int i = 0; i < node.getSources().size(); i++) {
                 PlanAndMappings rewrittenChild = node.getSources().get(i).accept(this, context);
                 rewrittenChildren.add(rewrittenChild.getRoot());
-                AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenChild.getSymbolMappings(), context.getForbiddenSymbols());
+                AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenChild.getSymbolMappings());
                 rewrittenInputsBuilder.add(mapper.map(node.getInputs().get(i)));
             }
             List<List<Symbol>> rewrittenInputs = rewrittenInputsBuilder.build();
 
             // canonicalize ExchangeNode outputs
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, context.getCorrelationMapping(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(context.getCorrelationMapping());
             List<Symbol> rewrittenOutputs = mapper.map(node.getOutputSymbols());
 
             // sanity check: assert that duplicate outputs result from same inputs
@@ -319,7 +319,7 @@ public class UnaliasSymbolReferences
             outputMapping.putAll(mapper.getMapping());
             outputMapping.putAll(newMapping);
 
-            mapper = new AliasingSymbolMapper(symbolAllocator, outputMapping, context.getForbiddenSymbols());
+            mapper = new AliasingSymbolMapper(outputMapping);
 
             // deduplicate outputs and prune input symbols lists accordingly
             List<List<Symbol>> newInputs = new ArrayList<>();
@@ -359,7 +359,7 @@ public class UnaliasSymbolReferences
         @Override
         public PlanAndMappings visitRemoteSource(RemoteSourceNode node, UnaliasContext context)
         {
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, context.getCorrelationMapping(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(context.getCorrelationMapping());
 
             List<Symbol> newOutputs = mapper.mapAndDistinct(node.getOutputSymbols());
             Optional<OrderingScheme> newOrderingScheme = node.getOrderingScheme().map(mapper::map);
@@ -388,7 +388,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitLimit(LimitNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             LimitNode rewrittenLimit = mapper.map(node, rewrittenSource.getRoot());
 
@@ -399,7 +399,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitDistinctLimit(DistinctLimitNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             DistinctLimitNode rewrittenDistinctLimit = mapper.map(node, rewrittenSource.getRoot());
 
@@ -419,7 +419,7 @@ public class UnaliasSymbolReferences
         @Override
         public PlanAndMappings visitValues(ValuesNode node, UnaliasContext context)
         {
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, context.getCorrelationMapping(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(context.getCorrelationMapping());
 
             List<List<Expression>> newRows = node.getRows().stream()
                     .map(row -> row.stream()
@@ -438,7 +438,7 @@ public class UnaliasSymbolReferences
         @Override
         public PlanAndMappings visitTableDelete(TableDeleteNode node, UnaliasContext context)
         {
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, context.getCorrelationMapping(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(context.getCorrelationMapping());
 
             Symbol newOutput = mapper.map(node.getOutput());
 
@@ -451,7 +451,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitDelete(DeleteNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             Symbol newRowId = mapper.map(node.getRowId());
             List<Symbol> newOutputs = mapper.map(node.getOutputSymbols());
@@ -470,7 +470,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitStatisticsWriterNode(StatisticsWriterNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             StatisticsWriterNode rewrittenStatisticsWriter = mapper.map(node, rewrittenSource.getRoot());
 
@@ -481,7 +481,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitTableWriter(TableWriterNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             TableWriterNode rewrittenTableWriter = mapper.map(node, rewrittenSource.getRoot());
 
@@ -492,7 +492,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitTableFinish(TableFinishNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             TableFinishNode rewrittenTableFinish = mapper.map(node, rewrittenSource.getRoot());
 
@@ -503,7 +503,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitRowNumber(RowNumberNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             RowNumberNode rewrittenRowNumber = mapper.map(node, rewrittenSource.getRoot());
 
@@ -514,7 +514,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitTopNRowNumber(TopNRowNumberNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             TopNRowNumberNode rewrittenTopNRowNumber = mapper.map(node, rewrittenSource.getRoot());
 
@@ -525,7 +525,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitTopN(TopNNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             TopNNode rewrittenTopN = mapper.map(node, rewrittenSource.getRoot());
 
@@ -536,7 +536,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitSort(SortNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             OrderingScheme newOrderingScheme = mapper.map(node.getOrderingScheme());
 
@@ -549,7 +549,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitFilter(FilterNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             Expression newPredicate = mapper.map(node.getPredicate());
 
@@ -562,7 +562,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitProject(ProjectNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             // canonicalize ProjectNode assignments
             ImmutableList.Builder<Map.Entry<Symbol, Expression>> builder = ImmutableList.builder();
@@ -607,7 +607,7 @@ public class UnaliasSymbolReferences
             outputMapping.putAll(mapper.getMapping());
             outputMapping.putAll(newMapping);
 
-            mapper = new AliasingSymbolMapper(symbolAllocator, outputMapping, context.getForbiddenSymbols());
+            mapper = new AliasingSymbolMapper(outputMapping);
 
             // build new Assignments with canonical outputs
             // duplicate entries will be removed by the Builder
@@ -625,7 +625,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitOutput(OutputNode node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             List<Symbol> newOutputs = mapper.map(node.getOutputSymbols());
 
@@ -648,7 +648,7 @@ public class UnaliasSymbolReferences
         public PlanAndMappings visitAssignUniqueId(AssignUniqueId node, UnaliasContext context)
         {
             PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenSource.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenSource.getSymbolMappings());
 
             Symbol newUnique = mapper.map(node.getIdColumn());
 
@@ -663,7 +663,7 @@ public class UnaliasSymbolReferences
             // it is assumed that apart from correlation (and possibly outer correlation), symbols are distinct between Input and Subquery
             // rewrite Input
             PlanAndMappings rewrittenInput = node.getInput().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenInput.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenInput.getSymbolMappings());
 
             // rewrite correlation with mapping from Input
             List<Symbol> rewrittenCorrelation = mapper.mapAndDistinct(node.getCorrelation());
@@ -685,7 +685,7 @@ public class UnaliasSymbolReferences
             Map<Symbol, Symbol> resultMapping = new HashMap<>();
             resultMapping.putAll(rewrittenInput.getSymbolMappings());
             resultMapping.putAll(rewrittenSubquery.getSymbolMappings());
-            mapper = new AliasingSymbolMapper(symbolAllocator, resultMapping, context.getForbiddenSymbols());
+            mapper = new AliasingSymbolMapper(resultMapping);
 
             ImmutableList.Builder<Map.Entry<Symbol, Expression>> builder = ImmutableList.builder();
             for (Map.Entry<Symbol, Expression> assignment : node.getSubqueryAssignments().entrySet()) {
@@ -729,7 +729,7 @@ public class UnaliasSymbolReferences
             assignmentsOutputMapping.putAll(mapper.getMapping());
             assignmentsOutputMapping.putAll(newMapping);
 
-            mapper = new AliasingSymbolMapper(symbolAllocator, assignmentsOutputMapping, context.getForbiddenSymbols());
+            mapper = new AliasingSymbolMapper(assignmentsOutputMapping);
 
             // build new Assignments with canonical outputs
             // duplicate entries will be removed by the Builder
@@ -749,7 +749,7 @@ public class UnaliasSymbolReferences
             // it is assumed that apart from correlation (and possibly outer correlation), symbols are distinct between left and right CorrelatedJoin source
             // rewrite Input
             PlanAndMappings rewrittenInput = node.getInput().accept(this, context);
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, rewrittenInput.getSymbolMappings(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(rewrittenInput.getSymbolMappings());
 
             // rewrite correlation with mapping from Input
             List<Symbol> rewrittenCorrelation = mapper.mapAndDistinct(node.getCorrelation());
@@ -773,7 +773,7 @@ public class UnaliasSymbolReferences
             resultMapping.putAll(rewrittenSubquery.getSymbolMappings());
 
             // rewrite filter with unified mapping
-            mapper = new AliasingSymbolMapper(symbolAllocator, resultMapping, context.getForbiddenSymbols());
+            mapper = new AliasingSymbolMapper(resultMapping);
             Expression newFilter = mapper.map(node.getFilter());
 
             return new PlanAndMappings(
@@ -793,7 +793,7 @@ public class UnaliasSymbolReferences
             unifiedMapping.putAll(rewrittenLeft.getSymbolMappings());
             unifiedMapping.putAll(rewrittenRight.getSymbolMappings());
 
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, unifiedMapping, context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(unifiedMapping);
 
             ImmutableList.Builder<JoinNode.EquiJoinClause> builder = ImmutableList.builder();
             for (JoinNode.EquiJoinClause clause : node.getCriteria()) {
@@ -830,7 +830,7 @@ public class UnaliasSymbolReferences
             outputMapping.putAll(mapper.getMapping());
             outputMapping.putAll(newMapping);
 
-            mapper = new AliasingSymbolMapper(symbolAllocator, outputMapping, context.getForbiddenSymbols());
+            mapper = new AliasingSymbolMapper(outputMapping);
             List<Symbol> canonicalOutputs = mapper.mapAndDistinct(node.getOutputSymbols());
             List<Symbol> newLeftOutputSymbols = canonicalOutputs.stream()
                     .filter(rewrittenLeft.getRoot().getOutputSymbols()::contains)
@@ -869,7 +869,7 @@ public class UnaliasSymbolReferences
             outputMapping.putAll(rewrittenSource.getSymbolMappings());
             outputMapping.putAll(rewrittenFilteringSource.getSymbolMappings());
 
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, outputMapping, context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(outputMapping);
 
             Symbol newSourceJoinSymbol = mapper.map(node.getSourceJoinSymbol());
             Symbol newFilteringSourceJoinSymbol = mapper.map(node.getFilteringSourceJoinSymbol());
@@ -902,7 +902,7 @@ public class UnaliasSymbolReferences
             outputMapping.putAll(rewrittenLeft.getSymbolMappings());
             outputMapping.putAll(rewrittenRight.getSymbolMappings());
 
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, outputMapping, context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(outputMapping);
 
             List<Symbol> newOutputSymbols = mapper.mapAndDistinct(node.getOutputSymbols());
             Expression newFilter = mapper.map(node.getFilter());
@@ -925,7 +925,7 @@ public class UnaliasSymbolReferences
             outputMapping.putAll(rewrittenProbe.getSymbolMappings());
             outputMapping.putAll(rewrittenIndex.getSymbolMappings());
 
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, outputMapping, context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(outputMapping);
 
             // canonicalize index join criteria
             ImmutableList.Builder<IndexJoinNode.EquiJoinClause> builder = ImmutableList.builder();
@@ -945,7 +945,7 @@ public class UnaliasSymbolReferences
         @Override
         public PlanAndMappings visitIndexSource(IndexSourceNode node, UnaliasContext context)
         {
-            AliasingSymbolMapper mapper = new AliasingSymbolMapper(symbolAllocator, context.getCorrelationMapping(), context.getForbiddenSymbols());
+            AliasingSymbolMapper mapper = new AliasingSymbolMapper(context.getCorrelationMapping());
 
             Set<Symbol> newLookupSymbols = node.getLookupSymbols().stream()
                     .map(mapper::map)
@@ -969,10 +969,10 @@ public class UnaliasSymbolReferences
                     .collect(toImmutableList());
 
             List<AliasingSymbolMapper> inputMappers = rewrittenSources.stream()
-                    .map(source -> new AliasingSymbolMapper(symbolAllocator, source.getSymbolMappings(), context.getForbiddenSymbols()))
+                    .map(source -> new AliasingSymbolMapper(source.getSymbolMappings()))
                     .collect(toImmutableList());
 
-            AliasingSymbolMapper outputMapper = new AliasingSymbolMapper(symbolAllocator, context.getCorrelationMapping(), context.getForbiddenSymbols());
+            AliasingSymbolMapper outputMapper = new AliasingSymbolMapper(context.getCorrelationMapping());
 
             ListMultimap<Symbol, Symbol> newOutputToInputs = rewriteOutputToInputsMap(node.getSymbolMapping(), outputMapper, inputMappers);
             List<Symbol> newOutputs = outputMapper.mapAndDistinct(node.getOutputSymbols());
@@ -996,10 +996,10 @@ public class UnaliasSymbolReferences
                     .collect(toImmutableList());
 
             List<AliasingSymbolMapper> inputMappers = rewrittenSources.stream()
-                    .map(source -> new AliasingSymbolMapper(symbolAllocator, source.getSymbolMappings(), context.getForbiddenSymbols()))
+                    .map(source -> new AliasingSymbolMapper(source.getSymbolMappings()))
                     .collect(toImmutableList());
 
-            AliasingSymbolMapper outputMapper = new AliasingSymbolMapper(symbolAllocator, context.getCorrelationMapping(), context.getForbiddenSymbols());
+            AliasingSymbolMapper outputMapper = new AliasingSymbolMapper(context.getCorrelationMapping());
 
             ListMultimap<Symbol, Symbol> newOutputToInputs = rewriteOutputToInputsMap(node.getSymbolMapping(), outputMapper, inputMappers);
             List<Symbol> newOutputs = outputMapper.mapAndDistinct(node.getOutputSymbols());
@@ -1023,10 +1023,10 @@ public class UnaliasSymbolReferences
                     .collect(toImmutableList());
 
             List<AliasingSymbolMapper> inputMappers = rewrittenSources.stream()
-                    .map(source -> new AliasingSymbolMapper(symbolAllocator, source.getSymbolMappings(), context.getForbiddenSymbols()))
+                    .map(source -> new AliasingSymbolMapper(source.getSymbolMappings()))
                     .collect(toImmutableList());
 
-            AliasingSymbolMapper outputMapper = new AliasingSymbolMapper(symbolAllocator, context.getCorrelationMapping(), context.getForbiddenSymbols());
+            AliasingSymbolMapper outputMapper = new AliasingSymbolMapper(context.getCorrelationMapping());
 
             ListMultimap<Symbol, Symbol> newOutputToInputs = rewriteOutputToInputsMap(node.getSymbolMapping(), outputMapper, inputMappers);
             List<Symbol> newOutputs = outputMapper.mapAndDistinct(node.getOutputSymbols());

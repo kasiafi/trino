@@ -15,12 +15,10 @@ package io.prestosql.sql.planner.optimizations;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import io.prestosql.spi.block.SortOrder;
 import io.prestosql.sql.planner.OrderingScheme;
 import io.prestosql.sql.planner.PartitioningScheme;
 import io.prestosql.sql.planner.Symbol;
-import io.prestosql.sql.planner.SymbolAllocator;
 import io.prestosql.sql.planner.plan.AggregationNode;
 import io.prestosql.sql.planner.plan.DistinctLimitNode;
 import io.prestosql.sql.planner.plan.GroupIdNode;
@@ -52,28 +50,13 @@ import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.prestosql.sql.planner.plan.AggregationNode.groupingSets;
 import static java.util.Objects.requireNonNull;
 
-/**
- * Maps symbols accordingly to the provided symbol map.
- * For certain symbols, specified as forbiddenSymbols, new mappings can be introduced and added to the symbol map.
- */
 public class AliasingSymbolMapper
 {
-    private final SymbolAllocator symbolAllocator;
     private final Map<Symbol, Symbol> mapping;
-    private final Set<Symbol> forbiddenSymbols;
-
-    public AliasingSymbolMapper(SymbolAllocator symbolAllocator, Map<Symbol, Symbol> mapping, Set<Symbol> forbiddenSymbols)
-    {
-        this.symbolAllocator = requireNonNull(symbolAllocator, "symbolAllocator is null");
-        this.mapping = new HashMap<>(requireNonNull(mapping, "mapping is null"));
-        this.forbiddenSymbols = ImmutableSet.copyOf(requireNonNull(forbiddenSymbols, "forbiddenSymbols is null"));
-    }
 
     public AliasingSymbolMapper(Map<Symbol, Symbol> mapping)
     {
-        this.symbolAllocator = null;
         this.mapping = ImmutableMap.copyOf(requireNonNull(mapping, "mapping is null"));
-        this.forbiddenSymbols = ImmutableSet.of();
     }
 
     public Map<Symbol, Symbol> getMapping()
@@ -82,18 +65,10 @@ public class AliasingSymbolMapper
     }
 
     // Return the canonical mapping for the symbol.
-    // If the symbol is not allowed ("forbidden") and hasn't got a mapping yet,
-    // map it to a new symbol. Following occurrences of the symbol will be mapped to the new symbol.
     public Symbol map(Symbol symbol)
     {
-        while (mapping.containsKey(symbol)) {
+        while (mapping.containsKey(symbol) && !mapping.get(symbol).equals(symbol)) {
             symbol = mapping.get(symbol);
-        }
-
-        if (forbiddenSymbols.contains(symbol)) {
-            Symbol newSymbol = symbolAllocator.newSymbol(symbol);
-            mapping.put(symbol, newSymbol);
-            return newSymbol;
         }
 
         return symbol;
