@@ -679,7 +679,7 @@ public class UnaliasSymbolReferences
             mappingForSubquery.putAll(correlationMapping);
 
             // rewrite Subquery
-            PlanAndMappings rewrittenSubquery = node.getSubquery().accept(this, new UnaliasContext(mappingForSubquery, context.getForbiddenSymbols()));
+            PlanAndMappings rewrittenSubquery = node.getSubquery().accept(this, new UnaliasContext(mappingForSubquery));
 
             // unify mappings from Input and Subquery to rewrite Subquery assignments
             Map<Symbol, Symbol> resultMapping = new HashMap<>();
@@ -765,7 +765,7 @@ public class UnaliasSymbolReferences
             mappingForSubquery.putAll(correlationMapping);
 
             // rewrite Subquery
-            PlanAndMappings rewrittenSubquery = node.getSubquery().accept(this, new UnaliasContext(mappingForSubquery, context.getForbiddenSymbols()));
+            PlanAndMappings rewrittenSubquery = node.getSubquery().accept(this, new UnaliasContext(mappingForSubquery));
 
             // unify mappings from Input and Subquery
             Map<Symbol, Symbol> resultMapping = new HashMap<>();
@@ -1068,31 +1068,19 @@ public class UnaliasSymbolReferences
         // In case of nested correlation, correlationMappings has required mappings for correlation symbols from all levels of nesting.
         private final Map<Symbol, Symbol> correlationMapping;
 
-        // Apart from immediate correlation and outer correlation, output symbols of left join source are not allowed in right source.
-        // However, it is possible to reuse a symbol.
-        // forbiddenSymbols is a set of all symbols which mustn't be reused in the given context, coming from all levels of nested joins.
-        // If a conflicting symbol is detected, it should be remapped to a new symbol.
-        private final Set<Symbol> forbiddenSymbols;
-
-        public UnaliasContext(Map<Symbol, Symbol> correlationMapping, Set<Symbol> forbiddenSymbols)
+        public UnaliasContext(Map<Symbol, Symbol> correlationMapping)
         {
             this.correlationMapping = requireNonNull(correlationMapping, "correlationMapping is null");
-            this.forbiddenSymbols = requireNonNull(forbiddenSymbols, "forbiddenSymbols is null");
         }
 
         public static UnaliasContext empty()
         {
-            return new UnaliasContext(ImmutableMap.of(), ImmutableSet.of());
+            return new UnaliasContext(ImmutableMap.of());
         }
 
         public Map<Symbol, Symbol> getCorrelationMapping()
         {
             return correlationMapping;
-        }
-
-        public Set<Symbol> getForbiddenSymbols()
-        {
-            return forbiddenSymbols;
         }
     }
 
