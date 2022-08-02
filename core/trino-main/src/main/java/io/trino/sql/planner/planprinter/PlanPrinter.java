@@ -1644,7 +1644,7 @@ public class PlanPrinter
                     ImmutableMap.of("name", node.getName()));
 
             checkArgument(
-                    node.getSources().isEmpty() && node.getTableArgumentProperties().isEmpty() && node.getInputDescriptorMappings().isEmpty(),
+                    node.getSources().isEmpty() && node.getTableArgumentProperties().isEmpty(),
                     "Table or descriptor arguments are not yet supported in PlanPrinter");
 
             node.getArguments().entrySet().stream()
