@@ -540,7 +540,7 @@ public abstract class BaseSqlServerConnectorTest
     public void testNativeQuerySimple()
     {
         // override because SQL Server provides an empty string as the name for unnamed column
-        assertQuery("SELECT * FROM TABLE(system.query(query => 'SELECT 1 a'))", "VALUES 1");
+        assertQuery("SELECT * FROM TABLE(system.query(query => 'SELECT 1 a')) t", "VALUES 1");
     }
 
     @Override

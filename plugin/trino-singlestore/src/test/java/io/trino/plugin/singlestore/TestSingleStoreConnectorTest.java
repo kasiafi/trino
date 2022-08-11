@@ -337,7 +337,7 @@ public class TestSingleStoreConnectorTest
         // The query fails because there are no columns, but even if columns were not required, the query would fail
         // to execute in SingleStore because the connector wraps it in additional syntax, which causes syntax error.
         assertFalse(getQueryRunner().tableExists(getSession(), "numbers"));
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'CREATE TABLE numbers(n INTEGER)'))"))
+        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'CREATE TABLE numbers(n INTEGER)')) t"))
                 .hasMessageContaining("descriptor has no fields");
         assertFalse(getQueryRunner().tableExists(getSession(), "numbers"));
     }
@@ -350,7 +350,7 @@ public class TestSingleStoreConnectorTest
         // The query fails because there are no columns, but even if columns were not required, the query would fail
         // to execute in SingleStore because the connector wraps it in additional syntax, which causes syntax error.
         try (TestTable testTable = simpleTable()) {
-            assertThatThrownBy(() -> query(format("SELECT * FROM TABLE(system.query(query => 'INSERT INTO %s VALUES (3)'))", testTable.getName())))
+            assertThatThrownBy(() -> query(format("SELECT * FROM TABLE(system.query(query => 'INSERT INTO %s VALUES (3)')) t", testTable.getName())))
                     .hasMessageContaining("descriptor has no fields");
             assertQuery("SELECT * FROM " + testTable.getName(), "VALUES 1, 2");
         }

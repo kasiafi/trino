@@ -300,6 +300,7 @@ import static io.trino.spi.StandardErrorCode.INVALID_ORDER_BY;
 import static io.trino.spi.StandardErrorCode.INVALID_PARTITION_BY;
 import static io.trino.spi.StandardErrorCode.INVALID_RECURSIVE_REFERENCE;
 import static io.trino.spi.StandardErrorCode.INVALID_ROW_FILTER;
+import static io.trino.spi.StandardErrorCode.INVALID_TABLE_FUNCTION_INVOCATION;
 import static io.trino.spi.StandardErrorCode.INVALID_VIEW;
 import static io.trino.spi.StandardErrorCode.INVALID_WINDOW_FRAME;
 import static io.trino.spi.StandardErrorCode.INVALID_WINDOW_REFERENCE;
@@ -1547,19 +1548,35 @@ class StatementAnalyzer
             Optional<Descriptor> analyzedProperColumnsDescriptor = functionAnalysis.getReturnedType();
             Descriptor properColumnsDescriptor;
             if (returnTypeSpecification == ONLY_PASS_THROUGH) {
+                if (analysis.isAliased(node)) {
+                    // spec p. 409
+                    throw semanticException(INVALID_TABLE_FUNCTION_INVOCATION, node, "Alias specified for table function with ONLY PASS THROUGH return type");
+                }
                 // this option is only allowed if there are input tables
                 throw semanticException(NOT_SUPPORTED, node, "Returning only pass through columns is not yet supported for table functions");
             }
-            if (returnTypeSpecification == GENERIC_TABLE) {
+            else if (returnTypeSpecification == GENERIC_TABLE) {
+                if (!analysis.isAliased(node)) {
+                    // spec p. 409
+                    throw semanticException(INVALID_TABLE_FUNCTION_INVOCATION, node, "Alias missing for table function with GENERIC TABLE return type");
+                }
                 properColumnsDescriptor = analyzedProperColumnsDescriptor
                         .orElseThrow(() -> semanticException(MISSING_RETURN_TYPE, node, "Cannot determine returned relation type for table function " + node.getName()));
             }
-            else {
-                // returned type is statically declared at function declaration and cannot be overridden
+            else { // returned type is statically declared at function declaration
+                if (!analysis.isAliased(node)) {
+                    // spec p. 409
+                    throw semanticException(INVALID_TABLE_FUNCTION_INVOCATION, node, "Alias missing for table function with statically declared return type");
+                }
+                // the declared type cannot be overridden
                 if (analyzedProperColumnsDescriptor.isPresent()) {
                     throw semanticException(AMBIGUOUS_RETURN_TYPE, node, "Returned relation type for table function %s is ambiguous", node.getName());
                 }
                 properColumnsDescriptor = ((DescribedTable) returnTypeSpecification).getDescriptor();
+            }
+
+            if (returnTypeSpecification == GENERIC_TABLE || !argumentsAnalysis.getTableArgumentAnalyses().isEmpty()) {
+                analysis.addPolymorphicTableFunction(node);
             }
 
             // currently we don't support input tables, so the output consists of proper columns only
@@ -2381,6 +2398,9 @@ class StatementAnalyzer
         {
             Scope inputScope = process(relation.getInput(), scope);
 
+            // MATCH_RECOGNIZE cannot be applied to a polymorphic table function (spec p.409)
+            validateNoNestedTableFunction(relation.getInput(), "row pattern matching");
+
             // check that input table column names are not ambiguous
             // Note: This check is not compliant with SQL identifier semantics. Quoted identifiers should have different comparison rules than unquoted identifiers.
             // However, field names do not contain the information about quotation, and so every comparison is case-insensitive. For example, if there are fields named
@@ -2566,6 +2586,7 @@ class StatementAnalyzer
         protected Scope visitAliasedRelation(AliasedRelation relation, Optional<Scope> scope)
         {
             analysis.setRelationName(relation, QualifiedName.of(ImmutableList.of(relation.getAlias())));
+            analysis.addAliased(relation.getRelation());
             Scope relationScope = process(relation.getRelation(), scope);
 
             // todo this check should be inside of TupleDescriptor.withAlias, but the exception needs the node object
@@ -2647,7 +2668,31 @@ class StatementAnalyzer
 
             analysis.setSampleRatio(relation, samplePercentageValue / 100);
             Scope relationScope = process(relation.getRelation(), scope);
+
+            // TABLESAMPLE cannot be applied to a polymorphic table function (spec p.409)
+            // Note: the below method finds a table function immediately nested in SampledRelation, or aliased.
+            // Potentially, a table function could be also nested with intervening PatternRecognitionRelation.
+            // Such case is handled in visitPatternRecognitionRelation().
+            validateNoNestedTableFunction(relation.getRelation(), "sample");
+
             return createAndAssignScope(relation, scope, relationScope.getRelationType());
+        }
+
+        // this method should run after the `base` relation is processed, so that it is
+        // determined whether the table function is polymorphic
+        private void validateNoNestedTableFunction(Relation base, String context)
+        {
+            TableFunctionInvocation tableFunctionInvocation = null;
+            if (base instanceof TableFunctionInvocation invocation) {
+                tableFunctionInvocation = invocation;
+            }
+            else if (base instanceof AliasedRelation aliasedRelation &&
+                    aliasedRelation.getRelation() instanceof TableFunctionInvocation invocation) {
+                tableFunctionInvocation = invocation;
+            }
+            if (tableFunctionInvocation != null && analysis.isPolymorphicTableFunction(tableFunctionInvocation)) {
+                throw semanticException(INVALID_TABLE_FUNCTION_INVOCATION, base, "Cannot apply %s to polymorphic table function invocation", context);
+            }
         }
 
         @Override

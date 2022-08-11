@@ -163,5 +163,5 @@ For example, select the top 10 nations by population::
           ORDER BY
             population DESC'
         )
-      );
+      ) t;
 

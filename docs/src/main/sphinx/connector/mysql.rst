@@ -346,7 +346,7 @@ For example, group and concatenate all employee IDs by manager ID::
           GROUP BY
             manager_id'
         )
-      );
+      ) t;
 
 Performance
 -----------

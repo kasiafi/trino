@@ -320,7 +320,7 @@ public abstract class BaseDruidConnectorTest
     {
         // override because Druid fails to prepare statement, while other connectors succeed in preparing statement and then fail because of no metadata available
         assertFalse(getQueryRunner().tableExists(getSession(), "numbers"));
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'CREATE TABLE numbers(n INTEGER)'))"))
+        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'CREATE TABLE numbers(n INTEGER)')) t"))
                 .hasMessageContaining("Failed to get table handle for prepared query");
         assertFalse(getQueryRunner().tableExists(getSession(), "numbers"));
     }

@@ -68,18 +68,18 @@ public class TestTableFunctionInvocation
     @Test
     public void testPrimitiveDefaultArgument()
     {
-        assertThat(query("SELECT boolean_column FROM TABLE(system.simple_table_function(column => 'boolean_column', ignored => 1))"))
+        assertThat(query("SELECT boolean_column FROM TABLE(system.simple_table_function(column => 'boolean_column', ignored => 1)) t"))
                 .matches("SELECT true WHERE false");
 
         // skip the `ignored` argument.
-        assertThat(query("SELECT boolean_column FROM TABLE(system.simple_table_function(column => 'boolean_column'))"))
+        assertThat(query("SELECT boolean_column FROM TABLE(system.simple_table_function(column => 'boolean_column')) t"))
                 .matches("SELECT true WHERE false");
     }
 
     @Test
     public void testNoArgumentsPassed()
     {
-        assertThat(query("SELECT col FROM TABLE(system.simple_table_function())"))
+        assertThat(query("SELECT col FROM TABLE(system.simple_table_function()) t"))
                 .matches("SELECT true WHERE false");
     }
 }

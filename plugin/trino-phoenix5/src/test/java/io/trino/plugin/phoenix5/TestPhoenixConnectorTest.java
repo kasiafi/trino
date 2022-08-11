@@ -610,7 +610,7 @@ public class TestPhoenixConnectorTest
     public void testNativeQuerySimple()
     {
         // not implemented
-        assertQueryFails("SELECT * FROM TABLE(system.query(query => 'SELECT 1'))", "line 1:21: Table function system.query not registered");
+        assertQueryFails("SELECT * FROM TABLE(system.query(query => 'SELECT 1')) t", "line 1:21: Table function system.query not registered");
     }
 
     @Override
@@ -618,8 +618,8 @@ public class TestPhoenixConnectorTest
     {
         // not implemented
         Session session = Session.builder(getSession())
-                .addPreparedStatement("my_query_simple", "SELECT * FROM TABLE(system.query(query => ?))")
-                .addPreparedStatement("my_query", "SELECT * FROM TABLE(system.query(query => format('SELECT %s FROM %s', ?, ?)))")
+                .addPreparedStatement("my_query_simple", "SELECT * FROM TABLE(system.query(query => ?)) t")
+                .addPreparedStatement("my_query", "SELECT * FROM TABLE(system.query(query => format('SELECT %s FROM %s', ?, ?))) t")
                 .build();
         assertQueryFails(session, "EXECUTE my_query_simple USING 'SELECT 1 a'", "line 1:21: Table function system.query not registered");
         assertQueryFails(session, "EXECUTE my_query USING 'a', '(SELECT 2 a) t'", "line 1:21: Table function system.query not registered");
@@ -630,7 +630,7 @@ public class TestPhoenixConnectorTest
     {
         // not implemented
         assertQueryFails(
-                format("SELECT * FROM TABLE(system.query(query => 'SELECT name FROM %s.nation WHERE nationkey = 0'))", getSession().getSchema().orElseThrow()),
+                format("SELECT * FROM TABLE(system.query(query => 'SELECT name FROM %s.nation WHERE nationkey = 0')) t", getSession().getSchema().orElseThrow()),
                 "line 1:21: Table function system.query not registered");
     }
 
@@ -640,7 +640,7 @@ public class TestPhoenixConnectorTest
         // not implemented
         try (TestTable testTable = simpleTable()) {
             assertQueryFails(
-                    format("SELECT * FROM TABLE(system.query(query => 'SELECT * FROM %s'))", testTable.getName()),
+                    format("SELECT * FROM TABLE(system.query(query => 'SELECT * FROM %s')) t", testTable.getName()),
                     "line 1:21: Table function system.query not registered");
         }
     }
@@ -650,7 +650,7 @@ public class TestPhoenixConnectorTest
     {
         // not implemented
         assertFalse(getQueryRunner().tableExists(getSession(), "numbers"));
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'CREATE TABLE numbers(n INTEGER)'))"))
+        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'CREATE TABLE numbers(n INTEGER)')) t"))
                 .hasMessage("line 1:21: Table function system.query not registered");
         assertFalse(getQueryRunner().tableExists(getSession(), "numbers"));
     }
@@ -660,7 +660,7 @@ public class TestPhoenixConnectorTest
     {
         // not implemented
         assertFalse(getQueryRunner().tableExists(getSession(), "non_existent_table"));
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'INSERT INTO non_existent_table VALUES (1)'))"))
+        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'INSERT INTO non_existent_table VALUES (1)')) t"))
                 .hasMessage("line 1:21: Table function system.query not registered");
     }
 
@@ -669,7 +669,7 @@ public class TestPhoenixConnectorTest
     {
         // not implemented
         try (TestTable testTable = simpleTable()) {
-            assertThatThrownBy(() -> query(format("SELECT * FROM TABLE(system.query(query => 'INSERT INTO %s VALUES (3)'))", testTable.getName())))
+            assertThatThrownBy(() -> query(format("SELECT * FROM TABLE(system.query(query => 'INSERT INTO %s VALUES (3)')) t", testTable.getName())))
                     .hasMessage("line 1:21: Table function system.query not registered");
             assertThat(query("SELECT * FROM " + testTable.getName()))
                     .matches("VALUES BIGINT '1', BIGINT '2'");
@@ -680,7 +680,7 @@ public class TestPhoenixConnectorTest
     public void testNativeQueryIncorrectSyntax()
     {
         // not implemented
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'some wrong syntax'))"))
+        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'some wrong syntax')) t"))
                 .hasMessage("line 1:21: Table function system.query not registered");
     }
 

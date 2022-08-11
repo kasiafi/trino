@@ -424,7 +424,7 @@ public abstract class BaseOracleConnectorTest
     public void testNativeQuerySimple()
     {
         // override because Oracle requires the FROM clause, and it needs explicit type
-        assertQuery("SELECT * FROM TABLE(system.query(query => 'SELECT CAST(1 AS number(2, 1)) FROM DUAL'))", ("VALUES 1"));
+        assertQuery("SELECT * FROM TABLE(system.query(query => 'SELECT CAST(1 AS number(2, 1)) FROM DUAL')) t", ("VALUES 1"));
     }
 
     @Override
@@ -432,8 +432,8 @@ public abstract class BaseOracleConnectorTest
     {
         // override because Oracle requires the FROM clause, and it needs explicit type
         Session session = Session.builder(getSession())
-                .addPreparedStatement("my_query_simple", "SELECT * FROM TABLE(system.query(query => ?))")
-                .addPreparedStatement("my_query", "SELECT * FROM TABLE(system.query(query => format('SELECT %s FROM %s', ?, ?)))")
+                .addPreparedStatement("my_query_simple", "SELECT * FROM TABLE(system.query(query => ?)) t")
+                .addPreparedStatement("my_query", "SELECT * FROM TABLE(system.query(query => format('SELECT %s FROM %s', ?, ?))) t")
                 .build();
         assertQuery(session, "EXECUTE my_query_simple USING 'SELECT CAST(1 AS number(2, 1)) a FROM DUAL'", "VALUES 1");
         assertQuery(session, "EXECUTE my_query USING 'a', '(SELECT CAST(2 AS number(2, 1)) a FROM DUAL) t'", "VALUES 2");
@@ -444,7 +444,7 @@ public abstract class BaseOracleConnectorTest
     {
         // override because Oracle succeeds in preparing query, and then fails because of no metadata available
         assertFalse(getQueryRunner().tableExists(getSession(), "non_existent_table"));
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'INSERT INTO non_existent_table VALUES (1)'))"))
+        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'INSERT INTO non_existent_table VALUES (1)')) t"))
                 .hasMessageContaining("Query not supported: ResultSetMetaData not available for query: INSERT INTO non_existent_table VALUES (1)");
     }
 
@@ -452,7 +452,7 @@ public abstract class BaseOracleConnectorTest
     public void testNativeQueryIncorrectSyntax()
     {
         // override because Oracle succeeds in preparing query, and then fails because of no metadata available
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'some wrong syntax'))"))
+        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'some wrong syntax')) t"))
                 .hasMessageContaining("Query not supported: ResultSetMetaData not available for query: some wrong syntax");
     }
 

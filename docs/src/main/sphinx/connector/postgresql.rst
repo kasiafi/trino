@@ -362,7 +362,7 @@ As a simple example, to select an entire table::
           FROM
             tpch.nation'
         )
-      );
+      ) t;
 
 As a practical example, you can leverage
 `frame exclusion from PostgresQL <https://www.postgresql.org/docs/current/sql-expressions.html#SYNTAX-WINDOW-FUNCTIONS>`_
@@ -394,7 +394,7 @@ when using window functions::
           FROM
             test.time_data'
         )
-      );
+      ) t;
 
 
 Performance

@@ -434,7 +434,7 @@ As a simple example, to select an entire table::
           FROM
             tpch.nation'
         )
-      );
+      ) t;
 
 As a practical example, you can use the
 `MODEL clause from Oracle SQL <https://docs.oracle.com/cd/B19306_01/server.102/b14223/sqlmodel.htm>`_::
@@ -466,7 +466,7 @@ As a practical example, you can use the
           ORDER BY
             country'
         )
-      );
+      ) t;
 
 Performance
 -----------

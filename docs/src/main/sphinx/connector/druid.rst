@@ -1,3 +1,4 @@
+
 ===============
 Druid connector
 ===============
@@ -100,5 +101,5 @@ to split and then count the number of comma-separated values in a column::
             ) AS num_reports
           FROM company.managers'
         )
-      );
+      ) t;
 

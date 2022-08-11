@@ -1612,15 +1612,15 @@ public abstract class BaseJdbcConnectorTest
     @Test
     public void testNativeQuerySimple()
     {
-        assertQuery("SELECT * FROM TABLE(system.query(query => 'SELECT 1'))", "VALUES 1");
+        assertQuery("SELECT * FROM TABLE(system.query(query => 'SELECT 1')) t", "VALUES 1");
     }
 
     @Test
     public void testNativeQueryParameters()
     {
         Session session = Session.builder(getSession())
-                .addPreparedStatement("my_query_simple", "SELECT * FROM TABLE(system.query(query => ?))")
-                .addPreparedStatement("my_query", "SELECT * FROM TABLE(system.query(query => format('SELECT %s FROM %s', ?, ?)))")
+                .addPreparedStatement("my_query_simple", "SELECT * FROM TABLE(system.query(query => ?)) t")
+                .addPreparedStatement("my_query", "SELECT * FROM TABLE(system.query(query => format('SELECT %s FROM %s', ?, ?))) t")
                 .build();
         assertQuery(session, "EXECUTE my_query_simple USING 'SELECT 1 a'", "VALUES 1");
         assertQuery(session, "EXECUTE my_query USING 'a', '(SELECT 2 a) t'", "VALUES 2");
@@ -1630,7 +1630,7 @@ public abstract class BaseJdbcConnectorTest
     public void testNativeQuerySelectFromNation()
     {
         assertQuery(
-                format("SELECT * FROM TABLE(system.query(query => 'SELECT name FROM %s.nation WHERE nationkey = 0'))", getSession().getSchema().orElseThrow()),
+                format("SELECT * FROM TABLE(system.query(query => 'SELECT name FROM %s.nation WHERE nationkey = 0')) t", getSession().getSchema().orElseThrow()),
                 "VALUES 'ALGERIA'");
     }
 
@@ -1639,7 +1639,7 @@ public abstract class BaseJdbcConnectorTest
     {
         try (TestTable testTable = simpleTable()) {
             assertQuery(
-                    format("SELECT * FROM TABLE(system.query(query => 'SELECT * FROM %s'))", testTable.getName()),
+                    format("SELECT * FROM TABLE(system.query(query => 'SELECT * FROM %s')) t", testTable.getName()),
                     "VALUES 1, 2");
         }
     }
@@ -1652,7 +1652,7 @@ public abstract class BaseJdbcConnectorTest
             // Check that column 'two' is not supported.
             assertQuery("SELECT column_name FROM information_schema.columns WHERE table_name = '" + unqualifiedTableName + "'", "VALUES 'one', 'three'");
             assertUpdate("INSERT INTO " + testTable.getName() + " (one, three) VALUES (123, 'test')", 1);
-            assertThatThrownBy(() -> query(format("SELECT * FROM TABLE(system.query(query => 'SELECT * FROM %s'))", testTable.getName())))
+            assertThatThrownBy(() -> query(format("SELECT * FROM TABLE(system.query(query => 'SELECT * FROM %s')) t", testTable.getName())))
                     .hasMessageContaining("Unsupported type");
         }
     }
@@ -1661,7 +1661,7 @@ public abstract class BaseJdbcConnectorTest
     public void testNativeQueryCreateStatement()
     {
         assertFalse(getQueryRunner().tableExists(getSession(), "numbers"));
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'CREATE TABLE numbers(n INTEGER)'))"))
+        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'CREATE TABLE numbers(n INTEGER)')) t"))
                 .hasMessageContaining("Query not supported: ResultSetMetaData not available for query: CREATE TABLE numbers(n INTEGER)");
         assertFalse(getQueryRunner().tableExists(getSession(), "numbers"));
     }
@@ -1670,7 +1670,7 @@ public abstract class BaseJdbcConnectorTest
     public void testNativeQueryInsertStatementTableDoesNotExist()
     {
         assertFalse(getQueryRunner().tableExists(getSession(), "non_existent_table"));
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'INSERT INTO non_existent_table VALUES (1)'))"))
+        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'INSERT INTO non_existent_table VALUES (1)')) t"))
                 .hasMessageContaining("Failed to get table handle for prepared query");
     }
 
@@ -1678,7 +1678,7 @@ public abstract class BaseJdbcConnectorTest
     public void testNativeQueryInsertStatementTableExists()
     {
         try (TestTable testTable = simpleTable()) {
-            assertThatThrownBy(() -> query(format("SELECT * FROM TABLE(system.query(query => 'INSERT INTO %s VALUES (3)'))", testTable.getName())))
+            assertThatThrownBy(() -> query(format("SELECT * FROM TABLE(system.query(query => 'INSERT INTO %s VALUES (3)')) t", testTable.getName())))
                     .hasMessageContaining(format("Query not supported: ResultSetMetaData not available for query: INSERT INTO %s VALUES (3)", testTable.getName()));
             assertQuery("SELECT * FROM " + testTable.getName(), "VALUES 1, 2");
         }
@@ -1687,7 +1687,7 @@ public abstract class BaseJdbcConnectorTest
     @Test
     public void testNativeQueryIncorrectSyntax()
     {
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'some wrong syntax'))"))
+        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'some wrong syntax')) t"))
                 .hasMessageContaining("Failed to get table handle for prepared query");
     }
 

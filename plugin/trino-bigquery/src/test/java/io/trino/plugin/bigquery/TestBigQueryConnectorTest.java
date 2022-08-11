@@ -661,7 +661,7 @@ public class TestBigQueryConnectorTest
     public void testNativeQuerySimple()
     {
         assertQuery(
-                "SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT 1'))",
+                "SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT 1')) t",
                 "VALUES 1");
     }
 
@@ -669,7 +669,7 @@ public class TestBigQueryConnectorTest
     public void testNativeQuerySelectFromNation()
     {
         assertQuery(
-                "SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT name FROM tpch.nation WHERE nationkey = 0'))",
+                "SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT name FROM tpch.nation WHERE nationkey = 0')) t",
                 "VALUES 'ALGERIA'");
         assertQuery(
                 "SELECT name FROM TABLE(bigquery.system.query(query => 'SELECT * FROM tpch.nation')) WHERE nationkey = 0",
@@ -684,7 +684,7 @@ public class TestBigQueryConnectorTest
             onBigQuery("CREATE TABLE " + tableName + "(col BIGINT)");
             onBigQuery("INSERT INTO " + tableName + " VALUES (1), (2)");
             assertQuery(
-                    "SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT * FROM " + tableName + "'))",
+                    "SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT * FROM " + tableName + "')) t",
                     "VALUES 1, 2");
         }
         finally {
@@ -700,7 +700,7 @@ public class TestBigQueryConnectorTest
             onBigQuery("CREATE TABLE test." + tableName + "(one BIGINT, two BIGNUMERIC(40,2), three STRING)");
             // Check that column 'two' is not supported.
             assertQuery("SELECT column_name FROM information_schema.columns WHERE table_schema = 'test' AND table_name = '" + tableName + "'", "VALUES 'one', 'three'");
-            assertThatThrownBy(() -> query("SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT * FROM test." + tableName + "'))"))
+            assertThatThrownBy(() -> query("SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT * FROM test." + tableName + "')) t"))
                     .hasMessageContaining("Unsupported type");
         }
         finally {
@@ -713,7 +713,7 @@ public class TestBigQueryConnectorTest
     {
         String tableName = "test_create" + randomTableSuffix();
         assertFalse(getQueryRunner().tableExists(getSession(), tableName));
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(bigquery.system.query(query => 'CREATE TABLE test." + tableName + "(n INTEGER)'))"))
+        assertThatThrownBy(() -> query("SELECT * FROM TABLE(bigquery.system.query(query => 'CREATE TABLE test." + tableName + "(n INTEGER)')) t"))
                 .hasMessage("Unsupported statement type: CREATE_TABLE");
         assertFalse(getQueryRunner().tableExists(getSession(), tableName));
     }
@@ -723,7 +723,7 @@ public class TestBigQueryConnectorTest
     {
         String tableName = "test_insert" + randomTableSuffix();
         assertFalse(getQueryRunner().tableExists(getSession(), tableName));
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(bigquery.system.query(query => 'INSERT INTO test." + tableName + " VALUES (1)'))"))
+        assertThatThrownBy(() -> query("SELECT * FROM TABLE(bigquery.system.query(query => 'INSERT INTO test." + tableName + " VALUES (1)')) t"))
                 .hasMessageContaining("Failed to get schema for query")
                 .hasStackTraceContaining("%s was not found", tableName);
     }
@@ -734,7 +734,7 @@ public class TestBigQueryConnectorTest
         String tableName = "test_insert" + randomTableSuffix();
         try {
             onBigQuery("CREATE TABLE test." + tableName + "(col BIGINT)");
-            assertThatThrownBy(() -> query("SELECT * FROM TABLE(bigquery.system.query(query => 'INSERT INTO test." + tableName + " VALUES (3)'))"))
+            assertThatThrownBy(() -> query("SELECT * FROM TABLE(bigquery.system.query(query => 'INSERT INTO test." + tableName + " VALUES (3)')) t"))
                     .hasMessage("Unsupported statement type: INSERT");
         }
         finally {
@@ -745,7 +745,7 @@ public class TestBigQueryConnectorTest
     @Test
     public void testNativeQueryIncorrectSyntax()
     {
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'some wrong syntax'))"))
+        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'some wrong syntax')) t"))
                 .hasMessageContaining("Failed to get schema for query");
     }
 

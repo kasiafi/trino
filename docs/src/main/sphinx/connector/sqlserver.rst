@@ -355,7 +355,7 @@ For example, select the top 10 percent of nations by population::
           ORDER BY
             population DESC'
         )
-      );
+      ) t;
 
 
 Performance

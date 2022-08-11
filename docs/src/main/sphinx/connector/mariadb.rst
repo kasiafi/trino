@@ -295,7 +295,7 @@ As an example, select the age of employees by using ``TIMESTAMPDIFF`` and
           FROM
             tiny.employees'
         )
-      );
+      ) t;
 
 Performance
 -----------

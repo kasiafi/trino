@@ -1816,7 +1816,7 @@ public abstract class BaseElasticsearchConnectorTest
                         "   FROM TABLE(elasticsearch.system.raw_query(" +
                         "                        schema => 'tpch', " +
                         "                        index => 'orders', " +
-                        "                        query => '%s'))) " +
+                        "                        query => '%s')) t) " +
                         "SELECT r.aggregations.max_orderkey.value, r.aggregations.sum_orderkey.value " +
                         "FROM data", query));
 
@@ -1892,7 +1892,7 @@ public abstract class BaseElasticsearchConnectorTest
         Session session = Session.builder(getSession())
                 .addPreparedStatement(
                         "my_query",
-                        "SELECT json_query(result, 'lax $[0][0].hits.hits._source') FROM TABLE(elasticsearch.system.raw_query(schema => ?, index => ?, query => ?))")
+                        "SELECT json_query(result, 'lax $[0][0].hits.hits._source') FROM TABLE(elasticsearch.system.raw_query(schema => ?, index => ?, query => ?)) t")
                 .build();
         assertQuery(
                 session,
