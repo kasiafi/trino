@@ -2225,6 +2225,7 @@ public class Analysis
         private final Map<String, Argument> arguments;
         private final List<TableArgumentAnalysis> tableArgumentAnalyses;
         private final List<List<TableArgumentAnalysis>> copartitioningLists;
+        private final int properColumnsCount;
         private final ConnectorTableFunctionHandle connectorTableFunctionHandle;
         private final ConnectorTransactionHandle transactionHandle;
 
@@ -2234,6 +2235,7 @@ public class Analysis
                 Map<String, Argument> arguments,
                 List<TableArgumentAnalysis> tableArgumentAnalyses,
                 List<List<TableArgumentAnalysis>> copartitioningLists,
+                int properColumnsCount,
                 ConnectorTableFunctionHandle connectorTableFunctionHandle,
                 ConnectorTransactionHandle transactionHandle)
         {
@@ -2242,6 +2244,7 @@ public class Analysis
             this.arguments = ImmutableMap.copyOf(requireNonNull(arguments, "arguments is null"));
             this.tableArgumentAnalyses = ImmutableList.copyOf(requireNonNull(tableArgumentAnalyses, "tableArgumentAnalyses is null"));
             this.copartitioningLists = ImmutableList.copyOf(requireNonNull(copartitioningLists, "copartitioningLists is null"));
+            this.properColumnsCount = properColumnsCount;
             this.connectorTableFunctionHandle = requireNonNull(connectorTableFunctionHandle, "connectorTableFunctionHandle is null");
             this.transactionHandle = requireNonNull(transactionHandle, "transactionHandle is null");
         }
@@ -2269,6 +2272,11 @@ public class Analysis
         public List<List<TableArgumentAnalysis>> getCopartitioningLists()
         {
             return copartitioningLists;
+        }
+
+        public int getProperColumnsCount()
+        {
+            return properColumnsCount;
         }
 
         public ConnectorTableFunctionHandle getConnectorTableFunctionHandle()

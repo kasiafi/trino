@@ -286,6 +286,7 @@ import static io.trino.spi.StandardErrorCode.COLUMN_TYPE_UNKNOWN;
 import static io.trino.spi.StandardErrorCode.DUPLICATE_COLUMN_NAME;
 import static io.trino.spi.StandardErrorCode.DUPLICATE_NAMED_QUERY;
 import static io.trino.spi.StandardErrorCode.DUPLICATE_PROPERTY;
+import static io.trino.spi.StandardErrorCode.DUPLICATE_RANGE_VARIABLE;
 import static io.trino.spi.StandardErrorCode.DUPLICATE_WINDOW_NAME;
 import static io.trino.spi.StandardErrorCode.EXPRESSION_NOT_CONSTANT;
 import static io.trino.spi.StandardErrorCode.EXPRESSION_NOT_IN_DISTINCT;
@@ -1529,15 +1530,6 @@ class StatementAnalyzer
 
             List<List<TableArgumentAnalysis>> copartitioningLists = analyzeCopartitioning(node.getCopartitioning(), argumentsAnalysis.getTableArgumentAnalyses());
 
-            analysis.setTableFunctionAnalysis(node, new TableFunctionInvocationAnalysis(
-                    catalogHandle,
-                    function.getName(),
-                    argumentsAnalysis.getPassedArguments(),
-                    argumentsAnalysis.getTableArgumentAnalyses(),
-                    copartitioningLists,
-                    functionAnalysis.getHandle(),
-                    transactionHandle));
-
             // determine the result relation type.
             // The result relation type of a table function consists of:
             // 1. passed columns from input tables:
@@ -1580,11 +1572,21 @@ class StatementAnalyzer
             }
 
             // currently we don't support input tables, so the output consists of proper columns only
-            // TODO implement SQL standard ISO/IEC 9075-2, 4.33 SQL-invoked routines, p. 123
+            // TODO implement SQL standard ISO/IEC 9075-2, 4.33 SQL-invoked routines, p. 123, 413, 414
             List<Field> fields = properColumnsDescriptor.getFields().stream()
                     // per spec, field names are mandatory
                     .map(field -> Field.newUnqualified(field.getName(), field.getType().orElseThrow(() -> new IllegalStateException("missing returned type for proper field"))))
                     .collect(toImmutableList());
+
+            analysis.setTableFunctionAnalysis(node, new TableFunctionInvocationAnalysis(
+                    catalogHandle,
+                    function.getName(),
+                    argumentsAnalysis.getPassedArguments(),
+                    argumentsAnalysis.getTableArgumentAnalyses(),
+                    copartitioningLists,
+                    properColumnsDescriptor.getFields().size(),
+                    functionAnalysis.getHandle(),
+                    transactionHandle));
 
             return createAndAssignScope(node, scope, fields);
         }
@@ -2588,9 +2590,14 @@ class StatementAnalyzer
             analysis.setRelationName(relation, QualifiedName.of(ImmutableList.of(relation.getAlias())));
             analysis.addAliased(relation.getRelation());
             Scope relationScope = process(relation.getRelation(), scope);
+            RelationType relationType = relationScope.getRelationType();
+
+            // special-handle table function invocation
+            if (relation.getRelation() instanceof TableFunctionInvocation tableFunctionInvocation) {
+                return createAndAssignScope(relation, scope, aliasTableFunctionInvocation(relation, relationType, tableFunctionInvocation));
+            }
 
             // todo this check should be inside of TupleDescriptor.withAlias, but the exception needs the node object
-            RelationType relationType = relationScope.getRelationType();
             if (relation.getColumnNames() != null) {
                 int totalColumns = relationType.getVisibleFieldCount();
                 if (totalColumns != relation.getColumnNames().size()) {
@@ -2621,6 +2628,85 @@ class StatementAnalyzer
                     (newField, field) -> analysis.addSourceColumns(newField, analysis.getSourceColumns(field)));
 
             return createAndAssignScope(relation, scope, descriptor);
+        }
+
+        // As described by the spec p.409
+        private RelationType aliasTableFunctionInvocation(AliasedRelation relation, RelationType relationType, TableFunctionInvocation tableFunctionInvocation)
+        {
+            TableFunctionInvocationAnalysis tableFunctionAnalysis = analysis.getTableFunctionAnalysis(tableFunctionInvocation);
+            int properColumnsCount = tableFunctionAnalysis.getProperColumnsCount();
+
+            // check that relation alias is different from range variables of all table arguments
+            tableFunctionAnalysis.getTableArgumentAnalyses().stream()
+                    .map(TableArgumentAnalysis::getName)
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .filter(name -> name.hasSuffix(QualifiedName.of(ImmutableList.of(relation.getAlias()))))
+                    .findFirst()
+                    .ifPresent(name -> {
+                        throw semanticException(DUPLICATE_RANGE_VARIABLE, relation.getAlias(), "Relation alias: %s is a duplicate of input table name: %s", relation.getAlias(), name);
+                    });
+
+            // build the new relation type. the alias must be applied to the proper columns only,
+            // and it must not shadow the range variables exposed by the table arguments
+            ImmutableList.Builder<Field> fieldsBuilder = ImmutableList.builder();
+            // first, put the table function's proper columns with alias
+            if (relation.getColumnNames() != null) {
+                // check that number of column aliases matches number of table function's proper columns
+                if (properColumnsCount != relation.getColumnNames().size()) {
+                    throw semanticException(MISMATCHED_COLUMN_ALIASES, relation, "Column alias list has %s entries but table function has %s proper columns", relation.getColumnNames().size(), properColumnsCount);
+                }
+                for (int i = 0; i < properColumnsCount; i++) {
+                    // proper columns are not hidden, so we don't need to skip hidden fields
+                    Field field = relationType.getFieldByIndex(i);
+                    // although the canonical name is recorded, fields are resolved case-insensitive
+                    Optional<String> columnAlias = Optional.of(relation.getColumnNames().get(i).getCanonicalValue());
+                    fieldsBuilder.add(Field.newQualified(
+                            QualifiedName.of(ImmutableList.of(relation.getAlias())),
+                            columnAlias,
+                            field.getType(),
+                            field.isHidden(),
+                            field.getOriginTable(),
+                            field.getOriginColumnName(),
+                            field.isAliased()));
+                }
+            }
+            else {
+                for (int i = 0; i < properColumnsCount; i++) {
+                    Field field = relationType.getFieldByIndex(i);
+                    fieldsBuilder.add(Field.newQualified(
+                            QualifiedName.of(ImmutableList.of(relation.getAlias())),
+                            field.getName(),
+                            field.getType(),
+                            field.isHidden(),
+                            field.getOriginTable(),
+                            field.getOriginColumnName(),
+                            field.isAliased()));
+                }
+            }
+
+            // append remaining fields. They are not being aliased, so hidden fields are included
+            for (int i = properColumnsCount; i < relationType.getAllFieldCount(); i++) {
+                fieldsBuilder.add(relationType.getFieldByIndex(i));
+            }
+
+            List<Field> fields = fieldsBuilder.build();
+
+            // check that there are no duplicate names within the table function's proper columns
+            Set<String> names = new HashSet<>();
+            fields.subList(0, properColumnsCount).stream()
+                    .map(Field::getName)
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    // field names are resolved case-insensitive
+                    .map(name -> name.toLowerCase(ENGLISH))
+                    .forEach(name -> {
+                        if (!names.add(name)) {
+                            throw semanticException(DUPLICATE_COLUMN_NAME, relation.getRelation(), "Duplicate name of table function proper column: " + name);
+                        }
+                    });
+
+            return new RelationType(fields);
         }
 
         @Override
