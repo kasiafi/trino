@@ -84,7 +84,9 @@ import io.trino.transaction.TransactionId;
 
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.Immutable;
+import javax.swing.text.html.parser.Entity;
 
+import java.util.AbstractMap;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -99,6 +101,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.stream.IntStream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -2288,5 +2291,36 @@ public class Analysis
         {
             return transactionHandle;
         }
+    }
+
+    public static void main(String[] args)
+    {
+        List<Map.Entry<Integer, Integer>> list = new ArrayList<>();
+        for (int i = 2; i < 11; i++) {
+            for (int j = 2; j < 11; j++) {
+                list.add(new AbstractMap.SimpleEntry<>(i, j));
+            }
+        }
+        Collections.shuffle(list);
+
+        // mnożenie i dzielenie
+        for (int i = 0; i < list.size(); i++) {
+            Map.Entry<Integer, Integer> entry = list.get(i);
+
+            if (i % 3 == 0) {
+                System.out.printf("%s * %s =\n", entry.getKey(), entry.getValue());
+            }
+            else if (i % 3 == 1) {
+                System.out.printf("%s : %s =\n", entry.getKey() * entry.getValue(), entry.getValue());
+            }
+            else {
+                System.out.printf("%s : .... = %s\n", entry.getKey() * entry.getValue(), entry.getValue());
+            }
+        }
+
+        // tabliczka mnożenia
+        /*for (Map.Entry<Integer, Integer> entry : list) {
+            System.out.printf("%s * %s =\n", entry.getKey(), entry.getValue());
+        }*/
     }
 }
