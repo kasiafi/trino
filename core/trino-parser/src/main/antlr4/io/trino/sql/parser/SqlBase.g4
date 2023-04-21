@@ -571,6 +571,7 @@ primaryExpression
 
 jsonPathInvocation
     : jsonValueExpression ',' path=string
+        (AS pathName=identifier)?
         (PASSING jsonArgument (',' jsonArgument)*)?
     ;
 
