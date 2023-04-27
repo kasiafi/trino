@@ -418,6 +418,54 @@ relationPrimary
     | LATERAL '(' query ')'                                           #lateral
     | TABLE '(' tableFunctionCall ')'                                 #tableFunctionInvocation
     | '(' relation ')'                                                #parenthesizedRelation
+    | JSON_TABLE '('
+        jsonPathInvocation
+        COLUMNS '(' jsonTableColumn (',' jsonTableColumn)* ')'
+        (PLAN '(' jsonTableSpecificPlan ')'
+        | PLAN DEFAULT '(' jsonTablePlanDefault ')')?
+        ((ERROR | EMPTY) ON ERROR)?
+      ')'                                                             #jsonTable
+    ;
+
+jsonTableColumn
+    : identifier FOR ORDINALITY                                     #ordinalityColumn
+    | identifier type
+        (PATH string)?
+        (emptyBehavior=jsonValueBehavior ON EMPTY)?
+        (errorBehavior=jsonValueBehavior ON ERROR)?                 #valueColumn
+    | identifier type FORMAT jsonRepresentation
+        (PATH string)?
+        (jsonQueryWrapperBehavior WRAPPER)?
+        ((KEEP | OMIT) QUOTES (ON SCALAR TEXT_STRING)?)?
+        (emptyBehavior=jsonQueryBehavior ON EMPTY)?
+        (errorBehavior=jsonQueryBehavior ON ERROR)?                 #queryColumn
+    | NESTED PATH? string (AS identifier)?
+        COLUMNS '(' jsonTableColumn (',' jsonTableColumn)* ')'      #nestedColumns
+    ;
+
+jsonTableSpecificPlan
+    : leafPlan
+    | compositePlan
+    ;
+
+leafPlan
+    : identifier
+    ;
+
+compositePlan
+    : leafPlan (OUTER | INNER) planPrimary                      #planParentChild
+    | planPrimary UNION planPrimary (UNION planPrimary)*        #planSiblingsUnion
+    | planPrimary CROSS planPrimary (CROSS planPrimary)*        #planSiblingsCross
+    ;
+
+planPrimary
+    : leafPlan
+    | '(' jsonTableSpecificPlan ')'
+    ;
+
+jsonTablePlanDefault
+    : (OUTER | INNER) (',' (UNION | CROSS))?
+    | (UNION | CROSS) (',' (OUTER | INNER))?
     ;
 
 tableFunctionCall
@@ -852,9 +900,9 @@ nonReserved
     | KEEP | KEY | KEYS
     | LAST | LATERAL | LEADING | LEVEL | LIMIT | LOCAL | LOGICAL
     | MAP | MATCH | MATCHED | MATCHES | MATCH_RECOGNIZE | MATERIALIZED | MEASURES | MERGE | MINUTE | MONTH
-    | NEXT | NFC | NFD | NFKC | NFKD | NO | NONE | NULLIF | NULLS
+    | NESTED | NEXT | NFC | NFD | NFKC | NFKD | NO | NONE | NULLIF | NULLS
     | OBJECT | OF | OFFSET | OMIT | ONE | ONLY | OPTION | ORDINALITY | OUTPUT | OVER | OVERFLOW
-    | PARTITION | PARTITIONS | PASSING | PAST | PATH | PATTERN | PER | PERIOD | PERMUTE | POSITION | PRECEDING | PRECISION | PRIVILEGES | PROPERTIES | PRUNE
+    | PARTITION | PARTITIONS | PASSING | PAST | PATH | PATTERN | PER | PERIOD | PERMUTE | PLAN | POSITION | PRECEDING | PRECISION | PRIVILEGES | PROPERTIES | PRUNE
     | QUOTES
     | RANGE | READ | REFRESH | RENAME | REPEATABLE | REPLACE | RESET | RESPECT | RESTRICT | RETURNING | REVOKE | ROLE | ROLES | ROLLBACK | ROW | ROWS | RUNNING
     | SCALAR | SCHEMA | SCHEMAS | SECOND | SECURITY | SEEK | SERIALIZABLE | SESSION | SET | SETS
@@ -982,6 +1030,7 @@ JSON_ARRAY: 'JSON_ARRAY';
 JSON_EXISTS: 'JSON_EXISTS';
 JSON_OBJECT: 'JSON_OBJECT';
 JSON_QUERY: 'JSON_QUERY';
+JSON_TABLE: 'JSON_TABLE';
 JSON_VALUE: 'JSON_VALUE';
 KEEP: 'KEEP';
 KEY: 'KEY';
@@ -1009,6 +1058,7 @@ MERGE: 'MERGE';
 MINUTE: 'MINUTE';
 MONTH: 'MONTH';
 NATURAL: 'NATURAL';
+NESTED: 'NESTED';
 NEXT: 'NEXT';
 NFC : 'NFC';
 NFD : 'NFD';
@@ -1045,6 +1095,7 @@ PATTERN: 'PATTERN';
 PER: 'PER';
 PERIOD: 'PERIOD';
 PERMUTE: 'PERMUTE';
+PLAN : 'PLAN';
 POSITION: 'POSITION';
 PRECEDING: 'PRECEDING';
 PRECISION: 'PRECISION';

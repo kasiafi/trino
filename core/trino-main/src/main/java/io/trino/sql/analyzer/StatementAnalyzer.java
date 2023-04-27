@@ -171,6 +171,7 @@ import io.trino.sql.tree.Join;
 import io.trino.sql.tree.JoinCriteria;
 import io.trino.sql.tree.JoinOn;
 import io.trino.sql.tree.JoinUsing;
+import io.trino.sql.tree.JsonTable;
 import io.trino.sql.tree.Lateral;
 import io.trino.sql.tree.Limit;
 import io.trino.sql.tree.LongLiteral;
@@ -3751,6 +3752,12 @@ class StatementAnalyzer
                     .collect(toImmutableList());
 
             return createAndAssignScope(node, scope, fields);
+        }
+
+        @Override
+        protected Scope visitJsonTable(JsonTable node, Optional<Scope> context)
+        {
+            throw semanticException(NOT_SUPPORTED, node, "JSON_TABLE is not yet supported");
         }
 
         private void analyzeWindowDefinitions(QuerySpecification node, Scope scope)
