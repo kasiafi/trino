@@ -23,6 +23,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 import com.google.common.math.IntMath;
 import io.airlift.slice.Slice;
@@ -112,6 +113,8 @@ import io.trino.sql.analyzer.Analysis.SourceColumn;
 import io.trino.sql.analyzer.Analysis.TableArgumentAnalysis;
 import io.trino.sql.analyzer.Analysis.TableFunctionInvocationAnalysis;
 import io.trino.sql.analyzer.Analysis.UnnestAnalysis;
+import io.trino.sql.analyzer.ExpressionAnalyzer.TypeAndAnalysis;
+import io.trino.sql.analyzer.JsonPathAnalyzer.JsonPathAnalysis;
 import io.trino.sql.analyzer.PatternRecognitionAnalyzer.PatternRecognitionAnalysis;
 import io.trino.sql.analyzer.Scope.AsteriskedIdentifierChainBasis;
 import io.trino.sql.parser.ParsingException;
@@ -171,7 +174,10 @@ import io.trino.sql.tree.Join;
 import io.trino.sql.tree.JoinCriteria;
 import io.trino.sql.tree.JoinOn;
 import io.trino.sql.tree.JoinUsing;
+import io.trino.sql.tree.JsonPathInvocation;
 import io.trino.sql.tree.JsonTable;
+import io.trino.sql.tree.JsonTableColumn;
+import io.trino.sql.tree.JsonTableSpecificPlan;
 import io.trino.sql.tree.Lateral;
 import io.trino.sql.tree.Limit;
 import io.trino.sql.tree.LongLiteral;
@@ -182,16 +188,23 @@ import io.trino.sql.tree.MergeDelete;
 import io.trino.sql.tree.MergeInsert;
 import io.trino.sql.tree.MergeUpdate;
 import io.trino.sql.tree.NaturalJoin;
+import io.trino.sql.tree.NestedColumns;
 import io.trino.sql.tree.Node;
+import io.trino.sql.tree.NodeLocation;
 import io.trino.sql.tree.NodeRef;
 import io.trino.sql.tree.Offset;
 import io.trino.sql.tree.OrderBy;
+import io.trino.sql.tree.OrdinalityColumn;
 import io.trino.sql.tree.Parameter;
 import io.trino.sql.tree.PatternRecognitionRelation;
+import io.trino.sql.tree.PlanLeaf;
+import io.trino.sql.tree.PlanParentChild;
+import io.trino.sql.tree.PlanSiblings;
 import io.trino.sql.tree.Prepare;
 import io.trino.sql.tree.Property;
 import io.trino.sql.tree.QualifiedName;
 import io.trino.sql.tree.Query;
+import io.trino.sql.tree.QueryColumn;
 import io.trino.sql.tree.QueryPeriod;
 import io.trino.sql.tree.QuerySpecification;
 import io.trino.sql.tree.RefreshMaterializedView;
@@ -222,6 +235,7 @@ import io.trino.sql.tree.SingleColumn;
 import io.trino.sql.tree.SortItem;
 import io.trino.sql.tree.StartTransaction;
 import io.trino.sql.tree.Statement;
+import io.trino.sql.tree.StringLiteral;
 import io.trino.sql.tree.SubqueryExpression;
 import io.trino.sql.tree.SubscriptExpression;
 import io.trino.sql.tree.Table;
@@ -237,6 +251,7 @@ import io.trino.sql.tree.Unnest;
 import io.trino.sql.tree.Update;
 import io.trino.sql.tree.UpdateAssignment;
 import io.trino.sql.tree.Use;
+import io.trino.sql.tree.ValueColumn;
 import io.trino.sql.tree.Values;
 import io.trino.sql.tree.VariableDefinition;
 import io.trino.sql.tree.Window;
@@ -289,6 +304,7 @@ import static io.trino.spi.StandardErrorCode.AMBIGUOUS_RETURN_TYPE;
 import static io.trino.spi.StandardErrorCode.COLUMN_NOT_FOUND;
 import static io.trino.spi.StandardErrorCode.COLUMN_TYPE_UNKNOWN;
 import static io.trino.spi.StandardErrorCode.DUPLICATE_COLUMN_NAME;
+import static io.trino.spi.StandardErrorCode.DUPLICATE_COLUMN_OR_PATH_NAME;
 import static io.trino.spi.StandardErrorCode.DUPLICATE_NAMED_QUERY;
 import static io.trino.spi.StandardErrorCode.DUPLICATE_PROPERTY;
 import static io.trino.spi.StandardErrorCode.DUPLICATE_RANGE_VARIABLE;
@@ -307,6 +323,7 @@ import static io.trino.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
 import static io.trino.spi.StandardErrorCode.INVALID_LIMIT_CLAUSE;
 import static io.trino.spi.StandardErrorCode.INVALID_ORDER_BY;
 import static io.trino.spi.StandardErrorCode.INVALID_PARTITION_BY;
+import static io.trino.spi.StandardErrorCode.INVALID_PLAN;
 import static io.trino.spi.StandardErrorCode.INVALID_RECURSIVE_REFERENCE;
 import static io.trino.spi.StandardErrorCode.INVALID_ROW_FILTER;
 import static io.trino.spi.StandardErrorCode.INVALID_TABLE_FUNCTION_INVOCATION;
@@ -319,6 +336,7 @@ import static io.trino.spi.StandardErrorCode.MISSING_COLUMN_ALIASES;
 import static io.trino.spi.StandardErrorCode.MISSING_COLUMN_NAME;
 import static io.trino.spi.StandardErrorCode.MISSING_GROUP_BY;
 import static io.trino.spi.StandardErrorCode.MISSING_ORDER_BY;
+import static io.trino.spi.StandardErrorCode.MISSING_PATH_NAME;
 import static io.trino.spi.StandardErrorCode.MISSING_RETURN_TYPE;
 import static io.trino.spi.StandardErrorCode.NESTED_RECURSIVE;
 import static io.trino.spi.StandardErrorCode.NESTED_ROW_PATTERN_RECOGNITION;
@@ -356,6 +374,8 @@ import static io.trino.sql.analyzer.AggregationAnalyzer.verifyOrderByAggregation
 import static io.trino.sql.analyzer.AggregationAnalyzer.verifySourceAggregations;
 import static io.trino.sql.analyzer.Analyzer.verifyNoAggregateWindowOrGroupingFunctions;
 import static io.trino.sql.analyzer.CanonicalizationAware.canonicalizationAwareKey;
+import static io.trino.sql.analyzer.ExpressionAnalyzer.analyzeJsonQueryExpression;
+import static io.trino.sql.analyzer.ExpressionAnalyzer.analyzeJsonValueExpression;
 import static io.trino.sql.analyzer.ExpressionAnalyzer.createConstantAnalyzer;
 import static io.trino.sql.analyzer.ExpressionTreeUtils.asQualifiedName;
 import static io.trino.sql.analyzer.ExpressionTreeUtils.extractAggregateFunctions;
@@ -3152,6 +3172,17 @@ class StatementAnalyzer
                         }
                     }
                 }
+                else if (isJsonTable(node.getRight())) {
+                    if (criteria != null) {
+                        if (!(criteria instanceof JoinOn) || !((JoinOn) criteria).getExpression().equals(TRUE_LITERAL)) {
+                            throw semanticException(
+                                    NOT_SUPPORTED,
+                                    criteria instanceof JoinOn ? ((JoinOn) criteria).getExpression() : node,
+                                    "%s JOIN involving JSON_TABLE is only supported with condition ON TRUE",
+                                    node.getType().name());
+                        }
+                    }
+                }
                 else if (node.getType() == FULL) {
                     if (!(criteria instanceof JoinOn) || !((JoinOn) criteria).getExpression().equals(TRUE_LITERAL)) {
                         throw semanticException(
@@ -3669,7 +3700,7 @@ class StatementAnalyzer
             if (node instanceof AliasedRelation) {
                 return isLateralRelation(((AliasedRelation) node).getRelation());
             }
-            return node instanceof Unnest || node instanceof Lateral;
+            return node instanceof Unnest || node instanceof Lateral || node instanceof JsonTable;
         }
 
         private boolean isUnnestRelation(Relation node)
@@ -3678,6 +3709,14 @@ class StatementAnalyzer
                 return isUnnestRelation(((AliasedRelation) node).getRelation());
             }
             return node instanceof Unnest;
+        }
+
+        private boolean isJsonTable(Relation node)
+        {
+            if (node instanceof AliasedRelation) {
+                return isJsonTable(((AliasedRelation) node).getRelation());
+            }
+            return node instanceof JsonTable;
         }
 
         @Override
@@ -3755,9 +3794,246 @@ class StatementAnalyzer
         }
 
         @Override
-        protected Scope visitJsonTable(JsonTable node, Optional<Scope> context)
+        protected Scope visitJsonTable(JsonTable node, Optional<Scope> scope)
         {
-            throw semanticException(NOT_SUPPORTED, node, "JSON_TABLE is not yet supported");
+            Scope enclosingScope = createScope(scope);
+
+            // analyze the context item, the root JSON path, and the path parameters
+            analyzeJsonPathInvocation(node, enclosingScope);
+
+            // all column and path names must be unique
+            Set<String> uniqueNames = new HashSet<>();
+            JsonPathInvocation rootPath = node.getJsonPathInvocation();
+            rootPath.getPathName().ifPresent(name -> uniqueNames.add(name.getCanonicalValue()));
+
+            ImmutableList.Builder<Field> outputFields = ImmutableList.builder();
+            analyzeJsonTableColumns(node.getColumns(), uniqueNames, outputFields, enclosingScope, node);
+
+            node.getPlan().ifPresent(plan -> {
+                if (plan instanceof JsonTableSpecificPlan specificPlan) {
+                    validateJsonTableSpecificPlan(rootPath, specificPlan, node.getColumns());
+                }
+                else {
+                    // if PLAN DEFAULT is specified, all nested paths should be named
+                    checkAllNestedPathsNamed(node.getColumns());
+                }
+            });
+
+            // TODO should we do an access control check if we can execute json_table? IMO no, as this is a language construct like UNNEST or LATERAL
+
+            // make a TF handle for all necessary info -- handle też można zrobić dopiero w plannerze, tak jak TFNode
+            // - get types of path parameters from analysis -> handle
+            // - handle powinno mieć plan zapisany i pathy poszczególne
+
+            // (NIE) zwrócic TF Analysis, jakby to był TF? ->  - nie, bo nie widzimy lewej strony, która ma byc inputem. Zrobimy TFNode bez analizy w RelationPlannerze.
+
+            // walidacje:
+            // - (done) path invocation -> mamy path analysis pod noderef(json_table)
+            // - (done) każdy nested path sparsowany i zanalizowany -> path analysis zapisany pod noderefem(nested_columns)
+            // - (done) columns: każdy z czterech typów inaczej się analizuje -> zapisac path indywidualny kolumny sparsowany i zanalizowany, typ, input output funkcje itp... podobnie jak json_query, json_value
+            // - (done) unikalność nazw kolumn i pathów
+            // - (done) plan clause: czy wszystko wyczerpuje, czy poprawny
+            // - (nie tutaj) error behavior column może zależeć od error behavior funkcji - obsłużyć w plannerze, walidacja już zrobiona w analizie kolumn
+
+            return createAndAssignScope(node, scope, outputFields.build());
+        }
+
+        private void analyzeJsonPathInvocation(JsonTable node, Scope scope)
+        {
+            ExpressionAnalysis expressionAnalysis = ExpressionAnalyzer.analyzeJsonPathInvocation(
+                    node,
+                    session,
+                    plannerContext,
+                    statementAnalyzerFactory,
+                    accessControl,
+                    scope,
+                    analysis,
+                    WarningCollector.NOOP,
+                    correlationSupport);
+            // context item and passed path parameters can contain subqueries - the subqueries are recorded under the enclosing JsonTable node
+            analysis.recordSubqueries(node, expressionAnalysis);
+        }
+
+        private void analyzeJsonTableColumns(List<JsonTableColumn> columns, Set<String> uniqueNames, ImmutableList.Builder<Field> outputFields, Scope enclosingScope, JsonTable jsonTable)
+        {
+            for (JsonTableColumn column : columns) {
+                if (column instanceof OrdinalityColumn ordinalityColumn) {
+                    String name = ordinalityColumn.getName().getCanonicalValue();
+                    if (!uniqueNames.add(name)) {
+                        throw semanticException(DUPLICATE_COLUMN_OR_PATH_NAME, ordinalityColumn.getName(), "All column and path names in JSON_TABLE invocation must be unique");
+                    }
+                    outputFields.add(Field.newUnqualified(name, BIGINT));
+                }
+                else if (column instanceof ValueColumn valueColumn) {
+                    String name = valueColumn.getName().getCanonicalValue();
+                    if (!uniqueNames.add(name)) {
+                        throw semanticException(DUPLICATE_COLUMN_OR_PATH_NAME, valueColumn.getName(), "All column and path names in JSON_TABLE invocation must be unique");
+                    }
+                    JsonPathAnalysis pathAnalysis = valueColumn.getJsonPath()
+                            .map(this::analyzeJsonPath)
+                            .orElseGet(() -> analyzeImplicitJsonPath(getImplicitJsonPath(name), valueColumn.getLocation()));
+                    analysis.setJsonPathAnalysis(valueColumn, pathAnalysis);
+                    TypeAndAnalysis typeAndAnalysis = analyzeJsonValueExpression(
+                            valueColumn,
+                            pathAnalysis,
+                            session,
+                            plannerContext,
+                            statementAnalyzerFactory,
+                            accessControl,
+                            enclosingScope,
+                            analysis,
+                            warningCollector,
+                            correlationSupport);
+                    // default values can contain subqueries - the subqueries are recorded under the enclosing JsonTable node
+                    analysis.recordSubqueries(jsonTable, typeAndAnalysis.analysis());
+                    outputFields.add(Field.newUnqualified(name, typeAndAnalysis.type()));
+                }
+                else if (column instanceof QueryColumn queryColumn) {
+                    String name = queryColumn.getName().getCanonicalValue();
+                    if (!uniqueNames.add(name)) {
+                        throw semanticException(DUPLICATE_COLUMN_OR_PATH_NAME, queryColumn.getName(), "All column and path names in JSON_TABLE invocation must be unique");
+                    }
+                    JsonPathAnalysis pathAnalysis = queryColumn.getJsonPath()
+                            .map(this::analyzeJsonPath)
+                            .orElseGet(() -> analyzeImplicitJsonPath(getImplicitJsonPath(name), queryColumn.getLocation()));
+                    analysis.setJsonPathAnalysis(queryColumn, pathAnalysis);
+                    Type type = analyzeJsonQueryExpression(queryColumn, session, plannerContext, statementAnalyzerFactory, accessControl, enclosingScope, analysis, warningCollector);
+                    outputFields.add(Field.newUnqualified(name, type));
+                }
+                else if (column instanceof NestedColumns nestedColumns) {
+                    nestedColumns.getPathName().ifPresent(name -> {
+                        if (!uniqueNames.add(name.getCanonicalValue())) {
+                            throw semanticException(DUPLICATE_COLUMN_OR_PATH_NAME, name, "All column and path names in JSON_TABLE invocation must be unique");
+                        }
+                    });
+                    JsonPathAnalysis pathAnalysis = analyzeJsonPath(nestedColumns.getJsonPath());
+                    analysis.setJsonPathAnalysis(nestedColumns, pathAnalysis);
+                    analyzeJsonTableColumns(nestedColumns.getColumns(), uniqueNames, outputFields, enclosingScope, jsonTable);
+                }
+                else {
+                    throw new IllegalArgumentException("unexpected type of JSON_TABLE column: " + column.getClass().getSimpleName());
+                }
+            }
+        }
+
+        private static String getImplicitJsonPath(String name)
+        {
+            // TODO the spec misses the path mode. I put 'lax', but it should be confirmed, as the path mode is meaningful for the semantics of the implicit path.
+            return "lax $.\"" + name.replace("\"", "\"\"") + '"';
+        }
+
+        private JsonPathAnalysis analyzeJsonPath(StringLiteral path)
+        {
+            return new JsonPathAnalyzer(
+                    plannerContext.getMetadata(),
+                    session,
+                    createConstantAnalyzer(plannerContext, accessControl, session, analysis.getParameters(), WarningCollector.NOOP, analysis.isDescribe()))
+                    .analyzeJsonPath(path, ImmutableMap.of());
+        }
+
+        private JsonPathAnalysis analyzeImplicitJsonPath(String path, Optional<NodeLocation> columnLocation)
+        {
+            return new JsonPathAnalyzer(
+                    plannerContext.getMetadata(),
+                    session,
+                    createConstantAnalyzer(plannerContext, accessControl, session, analysis.getParameters(), WarningCollector.NOOP, analysis.isDescribe()))
+                    .analyzeImplicitJsonPath(path, columnLocation.orElseThrow(() -> new IllegalStateException("missing NodeLocation for JSON_TABLE column")));
+        }
+
+        private void validateJsonTableSpecificPlan(JsonPathInvocation rootPath, JsonTableSpecificPlan rootPlan, List<JsonTableColumn> rootColumns)
+        {
+            String rootPathName = rootPath.getPathName()
+                    .orElseThrow(() -> semanticException(MISSING_PATH_NAME, rootPath, "All JSON paths must be named when specific plan is given"))
+                    .getCanonicalValue();
+            String rootPlanName;
+            if (rootPlan instanceof PlanLeaf planLeaf) {
+                rootPlanName = planLeaf.getName().getCanonicalValue();
+            }
+            else if (rootPlan instanceof PlanParentChild planParentChild) {
+                rootPlanName = planParentChild.getParent().getName().getCanonicalValue();
+            }
+            else {
+                throw semanticException(INVALID_PLAN, rootPlan, "JSON_TABLE plan must either be a single path name or it must be rooted in parent-child relationship (OUTER or INNER)");
+            }
+            validateJsonTablePlan(ImmutableMap.of(rootPathName, rootColumns), ImmutableMap.of(rootPlanName, rootPlan), rootPlan);
+        }
+
+        private void validateJsonTablePlan(Map<String, List<JsonTableColumn>> actualNodes, Map<String, JsonTableSpecificPlan> planNodes, JsonTableSpecificPlan rootPlan)
+        {
+            Set<String> unhandledActualNodes = Sets.difference(actualNodes.keySet(), planNodes.keySet());
+            if (!unhandledActualNodes.isEmpty()) {
+                throw semanticException(INVALID_PLAN, rootPlan, "JSON_TABLE plan should contain all JSON paths available at each level of nesting. Paths not included: " + String.join(", ", unhandledActualNodes));
+            }
+            Set<String> irrelevantPlanChildren = Sets.difference(planNodes.keySet(), actualNodes.keySet());
+            if (!irrelevantPlanChildren.isEmpty()) {
+                throw semanticException(INVALID_PLAN, rootPlan, "JSON_TABLE plan includes unavailable JSON path names: " + String.join(", ", irrelevantPlanChildren));
+            }
+
+            // recurse into child nodes
+            actualNodes.forEach((name, columns) -> {
+                JsonTableSpecificPlan plan = planNodes.get(name);
+
+                Map<String, List<JsonTableColumn>> actualChildren = columns.stream()
+                        .filter(NestedColumns.class::isInstance)
+                        .map(NestedColumns.class::cast)
+                        .collect(toImmutableMap(
+                                child -> child.getPathName()
+                                        .orElseThrow(() -> semanticException(MISSING_PATH_NAME, child.getJsonPath(), "All JSON paths must be named when specific plan is given"))
+                                        .getCanonicalValue(),
+                                NestedColumns::getColumns));
+
+                Map<String, JsonTableSpecificPlan> planChildren;
+                if (plan instanceof PlanLeaf) {
+                    planChildren = ImmutableMap.of();
+                }
+                else if (plan instanceof PlanParentChild planParentChild) {
+                    planChildren = new HashMap<>();
+                    getPlanSiblings(planParentChild.getChild(), planChildren);
+                }
+                else {
+                    throw new IllegalStateException("unexpected JSON_TABLE plan node: " + plan.getClass().getSimpleName());
+                }
+
+                validateJsonTablePlan(actualChildren, planChildren, rootPlan);
+            });
+        }
+
+        private void getPlanSiblings(JsonTableSpecificPlan plan, Map<String, JsonTableSpecificPlan> map)
+        {
+            if (plan instanceof PlanLeaf planLeaf) {
+                if (map.put(planLeaf.getName().getCanonicalValue(), planLeaf) != null) {
+                    throw semanticException(INVALID_PLAN, planLeaf, "Duplicate reference to JSON path name in sibling plan: " + planLeaf.getName().getCanonicalValue());
+                }
+            }
+            else if (plan instanceof PlanParentChild planParentChild) {
+                if (map.put(planParentChild.getParent().getName().getCanonicalValue(), planParentChild) != null) {
+                    throw semanticException(INVALID_PLAN, planParentChild.getParent(), "Duplicate reference to JSON path name in sibling plan: " + planParentChild.getParent().getName().getCanonicalValue());
+                }
+            }
+            else if (plan instanceof PlanSiblings planSiblings) {
+                for (JsonTableSpecificPlan sibling : planSiblings.getSiblings()) {
+                    getPlanSiblings(sibling, map);
+                }
+            }
+        }
+
+        // Per SQL standard ISO/IEC STANDARD 9075-2, p. 453, g), i), and p. 821, 2), b), when PLAN DEFAULT is specified, all nested paths must be named, but the root path does not have to be named.
+        private void checkAllNestedPathsNamed(List<JsonTableColumn> columns)
+        {
+            List<NestedColumns> nestedColumns = columns.stream()
+                    .filter(NestedColumns.class::isInstance)
+                    .map(NestedColumns.class::cast)
+                    .collect(toImmutableList());
+
+            nestedColumns.stream()
+                    .forEach(definition -> {
+                        if (definition.getPathName().isEmpty()) {
+                            throw semanticException(MISSING_PATH_NAME, definition.getJsonPath(), "All nested JSON paths must be named when default plan is given");
+                        }
+                    });
+
+            nestedColumns.stream()
+                    .forEach(definition -> checkAllNestedPathsNamed(definition.getColumns()));
         }
 
         private void analyzeWindowDefinitions(QuerySpecification node, Scope scope)

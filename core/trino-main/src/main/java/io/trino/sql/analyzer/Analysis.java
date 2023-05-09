@@ -158,9 +158,9 @@ public class Analysis
     private final Set<NodeRef<FunctionCall>> patternAggregations = new LinkedHashSet<>();
 
     // for JSON features
-    private final Map<NodeRef<Expression>, JsonPathAnalysis> jsonPathAnalyses = new LinkedHashMap<>();
+    private final Map<NodeRef<Node>, JsonPathAnalysis> jsonPathAnalyses = new LinkedHashMap<>();
     private final Map<NodeRef<Expression>, ResolvedFunction> jsonInputFunctions = new LinkedHashMap<>();
-    private final Map<NodeRef<Expression>, ResolvedFunction> jsonOutputFunctions = new LinkedHashMap<>();
+    private final Map<NodeRef<Node>, ResolvedFunction> jsonOutputFunctions = new LinkedHashMap<>();
 
     private final Map<NodeRef<QuerySpecification>, List<FunctionCall>> aggregates = new LinkedHashMap<>();
     private final Map<NodeRef<OrderBy>, List<Expression>> orderByAggregates = new LinkedHashMap<>();
@@ -201,7 +201,7 @@ public class Analysis
     private final Map<NodeRef<Expression>, Type> sortKeyCoercionsForFrameBoundComparison = new LinkedHashMap<>();
     private final Map<NodeRef<Expression>, ResolvedFunction> frameBoundCalculations = new LinkedHashMap<>();
     private final Map<NodeRef<Relation>, List<Type>> relationCoercions = new LinkedHashMap<>();
-    private final Map<NodeRef<Expression>, RoutineEntry> resolvedFunctions = new LinkedHashMap<>();
+    private final Map<NodeRef<Node>, RoutineEntry> resolvedFunctions = new LinkedHashMap<>();
     private final Map<NodeRef<Identifier>, LambdaArgumentDeclaration> lambdaArgumentReferences = new LinkedHashMap<>();
 
     private final Map<Field, ColumnHandle> columns = new LinkedHashMap<>();
@@ -651,7 +651,7 @@ public class Analysis
         return resolvedFunctions.get(NodeRef.of(node)).getFunction();
     }
 
-    public void addResolvedFunction(Expression node, ResolvedFunction function, String authorization)
+    public void addResolvedFunction(Node node, ResolvedFunction function, String authorization)
     {
         resolvedFunctions.put(NodeRef.of(node), new RoutineEntry(function, authorization));
     }
@@ -1006,14 +1006,19 @@ public class Analysis
         return patternAggregations.contains(NodeRef.of(function));
     }
 
-    public void setJsonPathAnalyses(Map<NodeRef<Expression>, JsonPathAnalysis> pathAnalyses)
+    public void setJsonPathAnalyses(Map<NodeRef<Node>, JsonPathAnalysis> pathAnalyses)
     {
         jsonPathAnalyses.putAll(pathAnalyses);
     }
 
-    public JsonPathAnalysis getJsonPathAnalysis(Expression expression)
+    public void setJsonPathAnalysis(Node node, JsonPathAnalysis pathAnalysis)
     {
-        return jsonPathAnalyses.get(NodeRef.of(expression));
+        jsonPathAnalyses.put(NodeRef.of(node), pathAnalysis);
+    }
+
+    public JsonPathAnalysis getJsonPathAnalysis(Node node)
+    {
+        return jsonPathAnalyses.get(NodeRef.of(node));
     }
 
     public void setJsonInputFunctions(Map<NodeRef<Expression>, ResolvedFunction> functions)
@@ -1026,7 +1031,7 @@ public class Analysis
         return jsonInputFunctions.get(NodeRef.of(expression));
     }
 
-    public void setJsonOutputFunctions(Map<NodeRef<Expression>, ResolvedFunction> functions)
+    public void setJsonOutputFunctions(Map<NodeRef<Node>, ResolvedFunction> functions)
     {
         jsonOutputFunctions.putAll(functions);
     }
