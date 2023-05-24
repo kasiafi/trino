@@ -355,4 +355,19 @@ public class TestRecursiveCte
                 """))
                 .matches("VALUES (ARRAY[0]), (ARRAY[0, 1]), (ARRAY[0, 1, 2]), (ARRAY[0, 1, 2, 3])");
     }
+
+    @Test
+    public void testJsonTableOhNoHelp()
+    {
+        assertThat(assertions.query("""
+                SELECT *
+                FROM JSON_TABLE ('["some valid JSON", true]' FORMAT JSON, 'lax $'
+                    COLUMNS (
+                        ordinal_number FOR ORDINALITY,
+                            customer_name varchar PATH 'lax $.cust_no' DEFAULT 'anonymous' ON EMPTY NULL ON ERROR,
+                                customer_countries varchar FORMAT JSON PATH 'lax.cust_ctr[*]' WITH UNCONDITIONAL ARRAY WRAPPER KEEP QUOTES ON SCALAR STRING NULL ON EMPTY ERROR ON ERROR)
+                        EMPTY ON ERROR)
+                """))
+                .matches("VALUES 1");
+    }
 }
