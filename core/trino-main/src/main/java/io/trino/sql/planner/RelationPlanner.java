@@ -19,14 +19,27 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ListMultimap;
 import io.trino.Session;
+import io.trino.json.ir.IrJsonPath;
+import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TableFunctionHandle;
 import io.trino.metadata.TableHandle;
+import io.trino.operator.table.json.JsonTable.JsonTableFunctionHandle;
+import io.trino.operator.table.json.JsonTableColumn;
+import io.trino.operator.table.json.JsonTableOrdinalityColumn;
+import io.trino.operator.table.json.JsonTablePlanCross;
+import io.trino.operator.table.json.JsonTablePlanLeaf;
+import io.trino.operator.table.json.JsonTablePlanNode;
+import io.trino.operator.table.json.JsonTablePlanSingle;
+import io.trino.operator.table.json.JsonTablePlanUnion;
+import io.trino.operator.table.json.JsonTableQueryColumn;
+import io.trino.operator.table.json.JsonTableValueColumn;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
 import io.trino.sql.ExpressionUtils;
 import io.trino.sql.PlannerContext;
 import io.trino.sql.analyzer.Analysis;
+import io.trino.sql.analyzer.Analysis.JsonTableAnalysis;
 import io.trino.sql.analyzer.Analysis.TableArgumentAnalysis;
 import io.trino.sql.analyzer.Analysis.TableFunctionInvocationAnalysis;
 import io.trino.sql.analyzer.Analysis.UnnestAnalysis;
@@ -34,6 +47,7 @@ import io.trino.sql.analyzer.Field;
 import io.trino.sql.analyzer.RelationType;
 import io.trino.sql.analyzer.Scope;
 import io.trino.sql.planner.QueryPlanner.PlanAndMappings;
+import io.trino.sql.planner.TranslationMap.ParametersRow;
 import io.trino.sql.planner.plan.Assignments;
 import io.trino.sql.planner.plan.CorrelatedJoinNode;
 import io.trino.sql.planner.plan.DataOrganizationSpecification;
@@ -61,28 +75,44 @@ import io.trino.sql.planner.rowpattern.ir.IrLabel;
 import io.trino.sql.planner.rowpattern.ir.IrRowPattern;
 import io.trino.sql.tree.AliasedRelation;
 import io.trino.sql.tree.AstVisitor;
+import io.trino.sql.tree.BooleanLiteral;
 import io.trino.sql.tree.Cast;
 import io.trino.sql.tree.CoalesceExpression;
 import io.trino.sql.tree.ComparisonExpression;
 import io.trino.sql.tree.Except;
 import io.trino.sql.tree.Expression;
+import io.trino.sql.tree.FunctionCall;
 import io.trino.sql.tree.Identifier;
 import io.trino.sql.tree.IfExpression;
 import io.trino.sql.tree.Intersect;
 import io.trino.sql.tree.Join;
 import io.trino.sql.tree.JoinCriteria;
 import io.trino.sql.tree.JoinUsing;
+import io.trino.sql.tree.JsonPathParameter;
+import io.trino.sql.tree.JsonQuery;
 import io.trino.sql.tree.JsonTable;
+import io.trino.sql.tree.JsonTableColumnDefinition;
+import io.trino.sql.tree.JsonTableDefaultPlan;
+import io.trino.sql.tree.JsonTablePlan.ParentChildPlanType;
+import io.trino.sql.tree.JsonTablePlan.SiblingsPlanType;
+import io.trino.sql.tree.JsonTableSpecificPlan;
+import io.trino.sql.tree.JsonValue;
 import io.trino.sql.tree.LambdaArgumentDeclaration;
 import io.trino.sql.tree.Lateral;
 import io.trino.sql.tree.MeasureDefinition;
 import io.trino.sql.tree.NaturalJoin;
+import io.trino.sql.tree.NestedColumns;
 import io.trino.sql.tree.Node;
 import io.trino.sql.tree.NodeRef;
+import io.trino.sql.tree.OrdinalityColumn;
 import io.trino.sql.tree.PatternRecognitionRelation;
 import io.trino.sql.tree.PatternSearchMode;
+import io.trino.sql.tree.PlanLeaf;
+import io.trino.sql.tree.PlanParentChild;
+import io.trino.sql.tree.PlanSiblings;
 import io.trino.sql.tree.QualifiedName;
 import io.trino.sql.tree.Query;
+import io.trino.sql.tree.QueryColumn;
 import io.trino.sql.tree.QuerySpecification;
 import io.trino.sql.tree.Relation;
 import io.trino.sql.tree.Row;
@@ -98,6 +128,7 @@ import io.trino.sql.tree.TableFunctionInvocation;
 import io.trino.sql.tree.TableSubquery;
 import io.trino.sql.tree.Union;
 import io.trino.sql.tree.Unnest;
+import io.trino.sql.tree.ValueColumn;
 import io.trino.sql.tree.Values;
 import io.trino.sql.tree.VariableDefinition;
 import io.trino.type.TypeCoercion;
@@ -134,11 +165,16 @@ import static io.trino.sql.planner.plan.AggregationNode.singleAggregation;
 import static io.trino.sql.planner.plan.AggregationNode.singleGroupingSet;
 import static io.trino.sql.tree.BooleanLiteral.TRUE_LITERAL;
 import static io.trino.sql.tree.Join.Type.CROSS;
+import static io.trino.sql.tree.Join.Type.FULL;
 import static io.trino.sql.tree.Join.Type.IMPLICIT;
 import static io.trino.sql.tree.Join.Type.INNER;
+import static io.trino.sql.tree.Join.Type.LEFT;
+import static io.trino.sql.tree.JsonTablePlan.ParentChildPlanType.OUTER;
+import static io.trino.sql.tree.JsonTablePlan.SiblingsPlanType.UNION;
 import static io.trino.sql.tree.PatternRecognitionRelation.RowsPerMatch.ONE;
 import static io.trino.sql.tree.PatternSearchMode.Mode.INITIAL;
 import static io.trino.sql.tree.SkipTo.Position.PAST_LAST;
+import static io.trino.type.Json2016Type.JSON_2016;
 import static java.lang.Boolean.TRUE;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
@@ -686,6 +722,16 @@ class RelationPlanner
             return planJoinUnnest(leftPlan, node, unnest.get());
         }
 
+        Optional<JsonTable> jsonTable = getJsonTable(node.getRight());
+        if (jsonTable.isPresent()) {
+            return planJoinJsonTable(
+                    newPlanBuilder(leftPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext),
+                    leftPlan.getFieldMappings(),
+                    node.getType(),
+                    jsonTable.get(),
+                    analysis.getScope(node));
+        }
+
         Optional<Lateral> lateral = getLateral(node.getRight());
         if (lateral.isPresent()) {
             return planCorrelatedJoin(node, leftPlan, lateral.get());
@@ -1003,6 +1049,17 @@ class RelationPlanner
         return Optional.empty();
     }
 
+    private static Optional<JsonTable> getJsonTable(Relation relation)
+    {
+        if (relation instanceof AliasedRelation) {
+            return getJsonTable(((AliasedRelation) relation).getRelation());
+        }
+        if (relation instanceof JsonTable) {
+            return Optional.of((JsonTable) relation);
+        }
+        return Optional.empty();
+    }
+
     private static Optional<Lateral> getLateral(Relation relation)
     {
         if (relation instanceof AliasedRelation) {
@@ -1125,6 +1182,351 @@ class RelationPlanner
         return new RelationPlan(unnestNode, outputScope, unnestNode.getOutputSymbols(), outerContext);
     }
 
+    private RelationPlan planJoinJsonTable(PlanBuilder leftPlan, List<Symbol> leftFieldMappings, Join.Type joinType, JsonTable jsonTable, Scope outputScope)
+    {
+        PlanBuilder planBuilder = leftPlan;
+
+        // extract input expressions
+        ImmutableList.Builder<Expression> builder = ImmutableList.builder();
+        Expression inputExpression = jsonTable.getJsonPathInvocation().getInputExpression();
+        builder.add(inputExpression);
+        List<JsonPathParameter> pathParameters = jsonTable.getJsonPathInvocation().getPathParameters();
+        pathParameters.stream()
+                .map(JsonPathParameter::getParameter)
+                .forEach(builder::add);
+        List<Expression> defaultExpressions = getDefaultExpressions(jsonTable.getColumns());
+        builder.addAll(defaultExpressions);
+        List<Expression> inputExpressions = builder.build();
+
+        planBuilder = subqueryPlanner.handleSubqueries(planBuilder, inputExpressions, analysis.getSubqueries(jsonTable));
+        planBuilder = planBuilder.appendProjections(inputExpressions, symbolAllocator, idAllocator);
+
+        // apply coercions
+        // coercions might be necessary for the context item and path parameters before the input functions are applied
+        // also, the default expressions in value columns (DEFAULT ... ON EMPTY / ON ERROR) might need a coercion to match the required output type
+        PlanAndMappings coerced = coerce(planBuilder, inputExpressions, analysis, idAllocator, symbolAllocator, typeCoercion);
+        planBuilder = coerced.getSubPlan();
+
+        // apply the input function to the input expression
+        BooleanLiteral failOnError = new BooleanLiteral(jsonTable.getErrorBehavior().orElse(JsonTable.ErrorBehavior.EMPTY) == JsonTable.ErrorBehavior.ERROR ? "true" : "false");
+        ResolvedFunction inputToJson = analysis.getJsonInputFunction(inputExpression);
+        Expression inputJson = new FunctionCall(inputToJson.toQualifiedName(), ImmutableList.of(coerced.get(inputExpression).toSymbolReference(), failOnError));
+
+        // apply the input functions to the JSON path parameters having FORMAT,
+        // and collect all JSON path parameters in a Row
+        List<JsonPathParameter> coercedParameters = pathParameters.stream()
+                .map(parameter -> new JsonPathParameter(
+                        parameter.getLocation(),
+                        parameter.getName(),
+                        coerced.get(parameter.getParameter()).toSymbolReference(),
+                        parameter.getFormat()))
+                .collect(toImmutableList());
+        JsonTableAnalysis jsonTableAnalysis = analysis.getJsonTableAnalysis(jsonTable);
+        Type parametersRowType = jsonTableAnalysis.parametersRowType();
+        ParametersRow orderedParameters = planBuilder.getTranslations().getParametersRow(pathParameters, coercedParameters, parametersRowType, failOnError);
+        Expression parametersRow = orderedParameters.getParametersRow();
+
+        // append projections for inputJson and parametersRow
+        // cannot use the 'appendProjections()' method because the projected expressions include resolved input functions, so they are not pure AST expressions
+        Symbol inputJsonSymbol = symbolAllocator.newSymbol("inputJson", JSON_2016);
+        Symbol parametersRowSymbol = symbolAllocator.newSymbol("parametersRow", parametersRowType);
+        ProjectNode appended = new ProjectNode(
+                idAllocator.getNextId(),
+                planBuilder.getRoot(),
+                Assignments.builder()
+                        .putIdentities(planBuilder.getRoot().getOutputSymbols())
+                        .put(inputJsonSymbol, inputJson)
+                        .put(parametersRowSymbol, parametersRow)
+                        .build());
+        planBuilder = planBuilder.withNewRoot(appended);
+
+        // identify the required symbols
+        ImmutableList.Builder<Symbol> requiredSymbolsBuilder = ImmutableList.<Symbol>builder()
+                .add(inputJsonSymbol)
+                .add(parametersRowSymbol);
+        defaultExpressions.stream()
+                .map(coerced::get)
+                .distinct()
+                .forEach(requiredSymbolsBuilder::add);
+        List<Symbol> requiredSymbols = requiredSymbolsBuilder.build();
+
+        // rewrite the root JSON path to IR using parameters
+        IrJsonPath rootPath = new JsonPathTranslator(session, plannerContext).rewriteToIr(analysis.getJsonPathAnalysis(jsonTable), orderedParameters.getParametersOrder());
+
+        // map the default expressions of value columns to indexes in the required columns list
+        // use a HashMap because there might be duplicate expressions
+        Map<Expression, Integer> defaultExpressionsMapping = new HashMap<>();
+        for (Expression defaultExpression : defaultExpressions) {
+            defaultExpressionsMapping.put(defaultExpression, requiredSymbols.indexOf(coerced.get(defaultExpression)));
+        }
+
+        // create json_table execution plan
+        JsonTablePlanNode executionPlan;
+        boolean defaultErrorOnError = jsonTable.getErrorBehavior().map(errorBehavior -> errorBehavior == JsonTable.ErrorBehavior.ERROR).orElse(false);
+        if (jsonTable.getPlan().isEmpty()) {
+            executionPlan = getPlanFromDefaults(rootPath, jsonTable.getColumns(), OUTER, UNION, 0, defaultErrorOnError, defaultExpressionsMapping).plan();
+        }
+        else if (jsonTable.getPlan().orElseThrow() instanceof JsonTableDefaultPlan defaultPlan) {
+            executionPlan = getPlanFromDefaults(rootPath, jsonTable.getColumns(), defaultPlan.getParentChild(), defaultPlan.getSiblings(), 0, defaultErrorOnError, defaultExpressionsMapping).plan();
+        }
+        else {
+            executionPlan = getPlanFromSpecification(rootPath, jsonTable.getColumns(), (JsonTableSpecificPlan) jsonTable.getPlan().orElseThrow(), 0, defaultErrorOnError, defaultExpressionsMapping).plan();
+        }
+
+        // create new symbols for json_table function's proper columns
+        RelationType properRelationType = analysis.getScope(jsonTable).getRelationType();
+        List<Symbol> properOutputs = IntStream.range(0, properRelationType.getAllFieldCount())
+                .mapToObj(properRelationType::getFieldByIndex)
+                .map(symbolAllocator::newSymbol)
+                .collect(toImmutableList());
+
+        // pass through all columns from the left side of the join
+        List<PassThroughColumn> passThroughColumns = leftFieldMappings.stream()
+                .map(symbol -> new PassThroughColumn(symbol, false))
+                .collect(toImmutableList());
+
+        // determine the join type between the input, and the json_table result
+        // this join type is not described in the plan, it depends on the enclosing join whose right source is the json_table
+        // since json_table is a lateral relation, and the join condition is 'true', effectively the join type is either LEFT OUTER or INNER
+        boolean outer = joinType == LEFT || joinType == FULL;
+
+        // create the TableFunctionNode and TableFunctionHandle
+        JsonTableFunctionHandle functionHandle = new JsonTableFunctionHandle(
+                parametersRowType,
+                executionPlan,
+                outer,
+                defaultErrorOnError);
+
+        TableFunctionNode tableFunctionNode = new TableFunctionNode(
+                idAllocator.getNextId(),
+                "$json_table",
+                jsonTableAnalysis.catalogHandle(),
+                ImmutableMap.of(), // this is an internal function, and we model it without arguments
+                properOutputs,
+                ImmutableList.of(planBuilder.getRoot()),
+                ImmutableList.of(new TableArgumentProperties(
+                        "$input",
+                        true,
+                        true,
+                        new PassThroughSpecification(true, passThroughColumns),
+                        requiredSymbols,
+                        Optional.empty())),
+                ImmutableList.of(),
+                new TableFunctionHandle(
+                        jsonTableAnalysis.catalogHandle(),
+                        functionHandle,
+                        jsonTableAnalysis.transactionHandle()));
+
+        // create output layout: first the left side of the join, next the proper columns
+        List<Symbol> outputLayout = ImmutableList.<Symbol>builder()
+                .addAll(leftFieldMappings)
+                .addAll(properOutputs)
+                .build();
+
+        return new RelationPlan(tableFunctionNode, outputScope, outputLayout, outerContext);
+
+        // TODO append output functions
+        // TODO what about correlation?
+        // TODO what about parameters (?)
+    }
+
+    private static List<Expression> getDefaultExpressions(List<JsonTableColumnDefinition> columns)
+    {
+        ImmutableList.Builder<Expression> builder = ImmutableList.builder();
+        for (JsonTableColumnDefinition column : columns) {
+            if (column instanceof ValueColumn valueColumn) {
+                valueColumn.getEmptyDefault().ifPresent(builder::add);
+                valueColumn.getErrorDefault().ifPresent(builder::add);
+            }
+            else if (column instanceof NestedColumns nestedColumns) {
+                builder.addAll(getDefaultExpressions(nestedColumns.getColumns()));
+            }
+        }
+        return builder.build();
+    }
+
+    private PlanAndNextIndex getPlanFromDefaults(
+            IrJsonPath path,
+            List<JsonTableColumnDefinition> columnDefinitions,
+            ParentChildPlanType parentChildPlanType,
+            SiblingsPlanType siblingsPlanType,
+            int nextIndex,
+            boolean defaultErrorOnError,
+            Map<Expression, Integer> defaultExpressionsMapping)
+    {
+        ImmutableList.Builder<JsonTableColumn> columns = ImmutableList.builder();
+        ImmutableList.Builder<JsonTablePlanNode> childrenBuilder = ImmutableList.builder();
+
+        for (JsonTableColumnDefinition columnDefinition : columnDefinitions) {
+            if (columnDefinition instanceof NestedColumns nestedColumns) {
+                IrJsonPath nestedPath = new JsonPathTranslator(session, plannerContext).rewriteToIr(analysis.getJsonPathAnalysis(nestedColumns), ImmutableList.of());
+                PlanAndNextIndex child = getPlanFromDefaults(
+                        nestedPath,
+                        nestedColumns.getColumns(),
+                        parentChildPlanType,
+                        siblingsPlanType,
+                        nextIndex,
+                        defaultErrorOnError,
+                        defaultExpressionsMapping);
+                childrenBuilder.add(child.plan());
+                nextIndex = child.nextIndex();
+            }
+            else {
+                columns.add(getColumn(columnDefinition, nextIndex, defaultErrorOnError, defaultExpressionsMapping));
+                nextIndex++;
+            }
+        }
+
+        JsonTablePlanNode plan;
+        List<JsonTablePlanNode> children = childrenBuilder.build();
+        if (children.isEmpty()) {
+            plan = new JsonTablePlanLeaf(path, columns.build());
+        }
+        else {
+            JsonTablePlanNode child;
+            if (children.size() == 1) {
+                child = getOnlyElement(children);
+            }
+            else if (siblingsPlanType == UNION) {
+                child = new JsonTablePlanUnion(children);
+            }
+            else {
+                child = new JsonTablePlanCross(children);
+            }
+            plan = new JsonTablePlanSingle(path, columns.build(), parentChildPlanType == OUTER, child);
+        }
+
+        return new PlanAndNextIndex(plan, nextIndex);
+    }
+
+    private PlanAndNextIndex getPlanFromSpecification(
+            IrJsonPath path,
+            List<JsonTableColumnDefinition> columnDefinitions,
+            JsonTableSpecificPlan specificPlan,
+            int nextIndex,
+            boolean defaultErrorOnError,
+            Map<Expression, Integer> defaultExpressionsMapping)
+    {
+        ImmutableList.Builder<JsonTableColumn> columns = ImmutableList.builder();
+        ImmutableMap.Builder<String, JsonTablePlanNode> childrenBuilder = ImmutableMap.builder();
+        Map<String, JsonTableSpecificPlan> siblings;
+        if (specificPlan instanceof PlanLeaf) {
+            siblings = ImmutableMap.of();
+        }
+        else {
+            siblings = getSiblings(((PlanParentChild) specificPlan).getChild());
+        }
+
+        for (JsonTableColumnDefinition columnDefinition : columnDefinitions) {
+            if (columnDefinition instanceof NestedColumns nestedColumns) {
+                IrJsonPath nestedPath = new JsonPathTranslator(session, plannerContext).rewriteToIr(analysis.getJsonPathAnalysis(nestedColumns), ImmutableList.of());
+                String nestedPathName = nestedColumns.getPathName().orElseThrow().getCanonicalValue();
+                PlanAndNextIndex child = getPlanFromSpecification(
+                        nestedPath,
+                        nestedColumns.getColumns(),
+                        siblings.get(nestedPathName),
+                        nextIndex,
+                        defaultErrorOnError,
+                        defaultExpressionsMapping);
+                childrenBuilder.put(nestedPathName, child.plan());
+                nextIndex = child.nextIndex();
+            }
+            else {
+                columns.add(getColumn(columnDefinition, nextIndex, defaultErrorOnError, defaultExpressionsMapping));
+                nextIndex++;
+            }
+        }
+
+        JsonTablePlanNode plan;
+        Map<String, JsonTablePlanNode> children = childrenBuilder.build();
+        if (children.isEmpty()) {
+            plan = new JsonTablePlanLeaf(path, columns.build());
+        }
+        else {
+            PlanParentChild planParentChild = (PlanParentChild) specificPlan;
+            boolean outer = planParentChild.getType() == OUTER;
+            JsonTablePlanNode child = combineSiblings(children, planParentChild.getChild());
+            plan = new JsonTablePlanSingle(path, columns.build(), outer, child);
+        }
+
+        return new PlanAndNextIndex(plan, nextIndex);
+    }
+
+    private Map<String, JsonTableSpecificPlan> getSiblings(JsonTableSpecificPlan plan)
+    {
+        if (plan instanceof PlanLeaf planLeaf) {
+            return ImmutableMap.of(planLeaf.getName().getCanonicalValue(), planLeaf);
+        }
+        if (plan instanceof PlanParentChild planParentChild) {
+            return ImmutableMap.of(planParentChild.getParent().getName().getCanonicalValue(), planParentChild);
+        }
+        PlanSiblings planSiblings = (PlanSiblings) plan;
+        ImmutableMap.Builder<String, JsonTableSpecificPlan> siblings = ImmutableMap.builder();
+        for (JsonTableSpecificPlan sibling : planSiblings.getSiblings()) {
+            siblings.putAll(getSiblings(sibling));
+        }
+        return siblings.build();
+    }
+
+    private JsonTableColumn getColumn(
+            JsonTableColumnDefinition columnDefinition,
+            int nextIndex,
+            boolean defaultErrorOnError,
+            Map<Expression, Integer> defaultExpressionsMapping)
+    {
+        if (columnDefinition instanceof OrdinalityColumn) {
+            return new JsonTableOrdinalityColumn(nextIndex);
+        }
+        ResolvedFunction columnFunction = analysis.getResolvedFunction(columnDefinition);
+        IrJsonPath columnPath = new JsonPathTranslator(session, plannerContext).rewriteToIr(analysis.getJsonPathAnalysis(columnDefinition), ImmutableList.of());
+        if (columnDefinition instanceof QueryColumn queryColumn) {
+            return new JsonTableQueryColumn(
+                    nextIndex,
+                    columnFunction,
+                    columnPath,
+                    queryColumn.getWrapperBehavior().ordinal(),
+                    queryColumn.getEmptyBehavior().ordinal(),
+                    queryColumn.getErrorBehavior().orElse(defaultErrorOnError ? JsonQuery.EmptyOrErrorBehavior.ERROR : JsonQuery.EmptyOrErrorBehavior.NULL).ordinal());
+        }
+        if (columnDefinition instanceof ValueColumn valueColumn) {
+            int emptyDefault = valueColumn.getEmptyDefault()
+                    .map(defaultExpressionsMapping::get)
+                    .orElse(-1);
+            int errorDefault = valueColumn.getErrorDefault()
+                    .map(defaultExpressionsMapping::get)
+                    .orElse(-1);
+            return new JsonTableValueColumn(
+                    nextIndex,
+                    columnFunction,
+                    columnPath,
+                    valueColumn.getEmptyBehavior().ordinal(),
+                    emptyDefault,
+                    valueColumn.getErrorBehavior().orElse(defaultErrorOnError ? JsonValue.EmptyOrErrorBehavior.ERROR : JsonValue.EmptyOrErrorBehavior.NULL).ordinal(),
+                    errorDefault);
+        }
+        throw new IllegalStateException("unexpected column definition: " + columnDefinition.getClass().getSimpleName());
+    }
+
+    private JsonTablePlanNode combineSiblings(Map<String, JsonTablePlanNode> siblings, JsonTableSpecificPlan plan)
+    {
+        if (plan instanceof PlanLeaf planLeaf) {
+            return siblings.get(planLeaf.getName().getCanonicalValue());
+        }
+        if (plan instanceof PlanParentChild planParentChild) {
+            return siblings.get(planParentChild.getParent().getName().getCanonicalValue());
+        }
+        PlanSiblings planSiblings = (PlanSiblings) plan;
+        List<JsonTablePlanNode> siblingNodes = planSiblings.getSiblings().stream()
+                .map(sibling -> combineSiblings(siblings, sibling))
+                .collect(toImmutableList());
+        if (planSiblings.getType() == UNION) {
+            return new JsonTablePlanUnion(siblingNodes);
+        }
+        return new JsonTablePlanCross(siblingNodes);
+    }
+
+    private record PlanAndNextIndex(JsonTablePlanNode plan, int nextIndex) {}
+
     @Override
     protected RelationPlan visitTableSubquery(TableSubquery node, Void context)
     {
@@ -1210,7 +1612,12 @@ class RelationPlanner
     @Override
     protected RelationPlan visitJsonTable(JsonTable node, Void context)
     {
-        throw semanticException(NOT_SUPPORTED, node, "JSON_TABLE is not yet supported");
+        return planJoinJsonTable(
+                planSingleEmptyRow(analysis.getScope(node).getOuterQueryParent()),
+                ImmutableList.of(),
+                INNER,
+                node,
+                analysis.getScope(node));
     }
 
     @Override
