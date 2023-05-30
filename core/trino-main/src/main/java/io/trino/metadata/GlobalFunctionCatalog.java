@@ -19,6 +19,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multimap;
 import io.trino.operator.table.ExcludeColumns.ExcludeColumnsFunctionHandle;
 import io.trino.operator.table.Sequence.SequenceFunctionHandle;
+import io.trino.operator.table.json.JsonTable.JsonTableFunctionHandle;
+import io.trino.spi.TrinoException;
 import io.trino.spi.function.AggregationFunctionMetadata;
 import io.trino.spi.function.AggregationImplementation;
 import io.trino.spi.function.BoundSignature;
@@ -52,6 +54,7 @@ import static io.trino.metadata.OperatorNameUtil.isOperatorName;
 import static io.trino.metadata.OperatorNameUtil.unmangleOperator;
 import static io.trino.operator.table.ExcludeColumns.getExcludeColumnsFunctionProcessorProvider;
 import static io.trino.operator.table.Sequence.getSequenceFunctionProcessorProvider;
+import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.function.FunctionKind.AGGREGATE;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
@@ -186,6 +189,9 @@ public class GlobalFunctionCatalog
         }
         if (functionHandle instanceof SequenceFunctionHandle) {
             return getSequenceFunctionProcessorProvider();
+        }
+        if (functionHandle instanceof JsonTableFunctionHandle) {
+            throw new TrinoException(NOT_SUPPORTED, "Json_table is not yet supported");
         }
 
         return null;
