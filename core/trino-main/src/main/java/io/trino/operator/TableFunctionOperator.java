@@ -22,6 +22,8 @@ import com.google.common.util.concurrent.ListenableFuture;
 import io.trino.memory.context.LocalMemoryContext;
 import io.trino.operator.RegularTableFunctionPartition.PassThroughColumnSpecification;
 import io.trino.spi.Page;
+import io.trino.spi.connector.CatalogHandle;
+import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.SortOrder;
 import io.trino.spi.function.table.ConnectorTableFunctionHandle;
 import io.trino.spi.function.table.TableFunctionProcessorProvider;
@@ -51,6 +53,8 @@ public class TableFunctionOperator
     {
         private final int operatorId;
         private final PlanNodeId planNodeId;
+
+        private final CatalogHandle functionCatalog;
 
         // a provider of table function processor to be called once per partition
         private final TableFunctionProcessorProvider tableFunctionProvider;
@@ -105,6 +109,7 @@ public class TableFunctionOperator
         public TableFunctionOperatorFactory(
                 int operatorId,
                 PlanNodeId planNodeId,
+                CatalogHandle functionCatalog,
                 TableFunctionProcessorProvider tableFunctionProvider,
                 ConnectorTableFunctionHandle functionHandle,
                 int properChannelsCount,
@@ -124,6 +129,7 @@ public class TableFunctionOperator
         {
             requireNonNull(planNodeId, "planNodeId is null");
             requireNonNull(tableFunctionProvider, "tableFunctionProvider is null");
+            requireNonNull(functionCatalog, "functionCatalog is null");
             requireNonNull(functionHandle, "functionHandle is null");
             requireNonNull(requiredChannels, "requiredChannels is null");
             requireNonNull(markerChannels, "markerChannels is null");
@@ -141,6 +147,7 @@ public class TableFunctionOperator
 
             this.operatorId = operatorId;
             this.planNodeId = planNodeId;
+            this.functionCatalog = functionCatalog;
             this.tableFunctionProvider = tableFunctionProvider;
             this.functionHandle = functionHandle;
             this.properChannelsCount = properChannelsCount;
@@ -169,6 +176,7 @@ public class TableFunctionOperator
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, TableFunctionOperator.class.getSimpleName());
             return new TableFunctionOperator(
                     operatorContext,
+                    functionCatalog,
                     tableFunctionProvider,
                     functionHandle,
                     properChannelsCount,
@@ -199,6 +207,7 @@ public class TableFunctionOperator
             return new TableFunctionOperatorFactory(
                     operatorId,
                     planNodeId,
+                    functionCatalog,
                     tableFunctionProvider,
                     functionHandle,
                     properChannelsCount,
@@ -219,6 +228,7 @@ public class TableFunctionOperator
     }
 
     private final OperatorContext operatorContext;
+    private final ConnectorSession session;
 
     private final PageBuffer pageBuffer = new PageBuffer();
     private final WorkProcessor<Page> outputPages;
@@ -226,6 +236,7 @@ public class TableFunctionOperator
 
     public TableFunctionOperator(
             OperatorContext operatorContext,
+            CatalogHandle functionCatalog,
             TableFunctionProcessorProvider tableFunctionProvider,
             ConnectorTableFunctionHandle functionHandle,
             int properChannelsCount,
@@ -244,6 +255,7 @@ public class TableFunctionOperator
             PagesIndex.Factory pagesIndexFactory)
     {
         requireNonNull(operatorContext, "operatorContext is null");
+        requireNonNull(functionCatalog, "functionCatalog is null");
         requireNonNull(tableFunctionProvider, "tableFunctionProvider is null");
         requireNonNull(functionHandle, "functionHandle is null");
         requireNonNull(requiredChannels, "requiredChannels is null");
@@ -261,6 +273,7 @@ public class TableFunctionOperator
         requireNonNull(pagesIndexFactory, "pagesIndexFactory is null");
 
         this.operatorContext = operatorContext;
+        this.session = operatorContext.getSession().toConnectorSession(functionCatalog);
 
         this.processEmptyInput = !pruneWhenEmpty;
 
@@ -542,7 +555,7 @@ public class TableFunctionOperator
                         // empty PagesIndex can only be passed once as the result of PartitionAndSort. Neither this nor any future instance of Process will ever get an empty PagesIndex again.
                         processEmpty = false;
                         return WorkProcessor.ProcessState.ofResult(new EmptyTableFunctionPartition(
-                                tableFunctionProvider.getDataProcessor(functionHandle),
+                                tableFunctionProvider.getDataProcessor(session, functionHandle),
                                 properChannelsCount,
                                 passThroughSourcesCount,
                                 passThroughSpecifications.stream()
@@ -562,7 +575,7 @@ public class TableFunctionOperator
                         pagesIndex,
                         partitionStart,
                         partitionEnd,
-                        tableFunctionProvider.getDataProcessor(functionHandle),
+                        tableFunctionProvider.getDataProcessor(session, functionHandle),
                         properChannelsCount,
                         passThroughSourcesCount,
                         requiredChannels,

@@ -1742,6 +1742,7 @@ public class LocalExecutionPlanner
             OperatorFactory operator = new TableFunctionOperatorFactory(
                     context.getNextOperatorId(),
                     node.getId(),
+                    node.getHandle().getCatalogHandle(),
                     processorProvider,
                     node.getHandle().getFunctionHandle(),
                     properChannelsCount,

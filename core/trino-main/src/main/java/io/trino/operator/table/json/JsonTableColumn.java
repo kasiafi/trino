@@ -13,6 +13,18 @@
  */
 package io.trino.operator.table.json;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+
+@JsonTypeInfo(
+        use = JsonTypeInfo.Id.NAME,
+        property = "@type")
+@JsonSubTypes({
+        @JsonSubTypes.Type(value = JsonTableOrdinalityColumn.class, name = "ordinality"),
+        @JsonSubTypes.Type(value = JsonTableQueryColumn.class, name = "query"),
+        @JsonSubTypes.Type(value = JsonTableValueColumn.class, name = "value"),
+})
+
 public sealed interface JsonTableColumn
         permits JsonTableOrdinalityColumn, JsonTableQueryColumn, JsonTableValueColumn
 {

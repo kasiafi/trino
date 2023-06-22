@@ -13,6 +13,19 @@
  */
 package io.trino.operator.table.json;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+
+@JsonTypeInfo(
+        use = JsonTypeInfo.Id.NAME,
+        property = "@type")
+@JsonSubTypes({
+        @JsonSubTypes.Type(value = JsonTablePlanCross.class, name = "cross"),
+        @JsonSubTypes.Type(value = JsonTablePlanLeaf.class, name = "leaf"),
+        @JsonSubTypes.Type(value = JsonTablePlanSingle.class, name = "single"),
+        @JsonSubTypes.Type(value = JsonTablePlanUnion.class, name = "union"),
+})
+
 public sealed interface JsonTablePlanNode
         permits JsonTablePlanCross, JsonTablePlanLeaf, JsonTablePlanSingle, JsonTablePlanUnion
 {

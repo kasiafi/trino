@@ -34,7 +34,7 @@ import io.trino.operator.table.json.JsonTablePlanUnion;
 import io.trino.operator.table.json.JsonTableQueryColumn;
 import io.trino.operator.table.json.JsonTableValueColumn;
 import io.trino.spi.connector.ColumnHandle;
-import io.trino.spi.ptf.TableArgument;
+import io.trino.spi.function.table.TableArgument;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
 import io.trino.sql.ExpressionUtils;
@@ -1307,10 +1307,13 @@ class RelationPlanner
 
         // create the TableFunctionNode and TableFunctionHandle
         JsonTableFunctionHandle functionHandle = new JsonTableFunctionHandle(
-                parametersRowType,
                 executionPlan,
                 outer,
-                defaultErrorOnError);
+                defaultErrorOnError,
+                parametersRowType,
+                properOutputs.stream()
+                        .map(symbolAllocator.getTypes()::get)
+                        .toArray(Type[]::new));
 
         TableFunctionNode tableFunctionNode = new TableFunctionNode(
                 idAllocator.getNextId(),

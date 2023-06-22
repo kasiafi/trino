@@ -13,35 +13,197 @@
  */
 package io.trino.operator.table.json;
 
-import io.trino.spi.ptf.ConnectorTableFunctionHandle;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.collect.ImmutableList;
+import io.trino.metadata.FunctionManager;
+import io.trino.metadata.Metadata;
+import io.trino.operator.table.json.execution.JsonTableProcessingFragment;
+import io.trino.spi.Page;
+import io.trino.spi.PageBuilder;
+import io.trino.spi.block.Block;
+import io.trino.spi.block.SingleRowBlock;
+import io.trino.spi.connector.ConnectorSession;
+import io.trino.spi.function.table.ConnectorTableFunctionHandle;
+import io.trino.spi.function.table.TableFunctionDataProcessor;
+import io.trino.spi.function.table.TableFunctionProcessorProvider;
+import io.trino.spi.function.table.TableFunctionProcessorState;
 import io.trino.spi.type.Type;
+import io.trino.spi.type.TypeManager;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+
+import static com.google.common.collect.Iterables.getOnlyElement;
+import static io.trino.operator.scalar.json.ParameterUtil.getParametersArray;
+import static io.trino.operator.table.json.execution.PlanRewriter.getExecutionPlan;
+import static io.trino.spi.function.table.TableFunctionProcessorState.Finished.FINISHED;
+import static io.trino.spi.function.table.TableFunctionProcessorState.Processed.produced;
+import static io.trino.spi.function.table.TableFunctionProcessorState.Processed.usedInput;
+import static io.trino.spi.type.BigintType.BIGINT;
+import static io.trino.spi.type.TypeUtils.readNativeValue;
+import static io.trino.spi.type.TypeUtils.writeNativeValue;
+import static io.trino.type.Json2016Type.JSON_2016;
 import static java.util.Objects.requireNonNull;
 
 public class JsonTable
 {
-    // TODO name with $ - hidden
-
     /**
-     * The function expects the context item (JSON input) in the channel 0, and the parameters row in the channel 1.
-     * Other channels in the input page correspond to default values for the value columns. Each value column in the processingPlan knows the indexes of its default channels.
      * This class comprises all information necessary to execute the json_table function:
      *
-     * @param parametersRowType type of the row containing the JSON path parameters for the root JSON path
      * @param processingPlan the root of the processing plan tree
      * @param outer the parent-child relationship between the input relation and the processingPlan result
      * @param errorOnError the error behavior: true for ERROR ON ERROR, false for EMPTY ON ERROR
+     * @param parametersRowType type of the row containing JSON path parameters for the root JSON path. The function expects the parameters row in the channel 1.
+     * Other channels in the input page correspond to JSON context item (channel 0), and default values for the value columns. Each value column in the processingPlan
+     * knows the indexes of its default channels.
+     * @param outputTypes types of the proper columns produced by the function
      */
-    public record JsonTableFunctionHandle(Type parametersRowType, JsonTablePlanNode processingPlan, boolean outer, boolean errorOnError)
+    public record JsonTableFunctionHandle(JsonTablePlanNode processingPlan, boolean outer, boolean errorOnError, Type parametersRowType, Type[] outputTypes)
             implements ConnectorTableFunctionHandle
     {
-        // input types?
-        // output types?
-
         public JsonTableFunctionHandle
         {
-            requireNonNull(parametersRowType, "parametersRowType is null");
             requireNonNull(processingPlan, "processingPlan is null");
+            requireNonNull(parametersRowType, "parametersRowType is null");
+            requireNonNull(outputTypes, "outputTypes is null");
+        }
+    }
+
+    public static TableFunctionProcessorProvider getJsonTableFunctionProcessorProvider(Metadata metadata, TypeManager typeManager, FunctionManager functionManager)
+    {
+        return new TableFunctionProcessorProvider()
+        {
+            @Override
+            public TableFunctionDataProcessor getDataProcessor(ConnectorSession session, ConnectorTableFunctionHandle handle)
+            {
+                JsonTableFunctionHandle jsonTableFunctionHandle = (JsonTableFunctionHandle) handle;
+                Object[] newRow = new Object[jsonTableFunctionHandle.outputTypes().length];
+                JsonTableProcessingFragment executionPlan = getExecutionPlan(
+                        jsonTableFunctionHandle.processingPlan(),
+                        newRow,
+                        jsonTableFunctionHandle.errorOnError(),
+                        jsonTableFunctionHandle.outputTypes(),
+                        session,
+                        metadata,
+                        typeManager,
+                        functionManager);
+                return new JsonTableFunctionProcessor(executionPlan, newRow, jsonTableFunctionHandle.outputTypes(), jsonTableFunctionHandle.parametersRowType(), jsonTableFunctionHandle.outer());
+            }
+        };
+    }
+
+    public static class JsonTableFunctionProcessor
+            implements TableFunctionDataProcessor
+    {
+        private final PageBuilder pageBuilder;
+        private final int properColumnsCount;
+        private final JsonTableProcessingFragment executionPlan;
+        private final Object[] newRow;
+        private final Type parametersRowType;
+        private final boolean outer;
+
+        private long totalPositionsProcessed;
+        private int currentPosition = -1;
+        private boolean currentPositionAlreadyProduced;
+
+        public JsonTableFunctionProcessor(JsonTableProcessingFragment executionPlan, Object[] newRow, Type[] outputTypes, Type parametersRowType, boolean outer)
+        {
+            this.pageBuilder = new PageBuilder(ImmutableList.<Type>builder()
+                    .add(outputTypes)
+                    .add(BIGINT) // add additional position for pass-through index
+                    .build());
+            this.properColumnsCount = outputTypes.length;
+            this.executionPlan = requireNonNull(executionPlan, "executionPlan is null");
+            this.newRow = requireNonNull(newRow, "newRow is null");
+            this.parametersRowType = requireNonNull(parametersRowType, "parametersRowType is null");
+            this.outer = outer;
+        }
+
+        @Override
+        public TableFunctionProcessorState process(List<Optional<Page>> input)
+        {
+            // no more input pages
+            if (input == null) {
+                if (pageBuilder.isEmpty()) {
+                    return FINISHED;
+                }
+                return flushPageBuilder();
+            }
+
+            Page inputPage = getOnlyElement(input).orElseThrow();
+            while (!pageBuilder.isFull()) {
+                // new input page
+                if (currentPosition == -1) {
+                    if (inputPage.getPositionCount() == 0) {
+                        return usedInput();
+                    }
+                    else {
+                        currentPosition = 0;
+                        currentPositionAlreadyProduced = false;
+                        totalPositionsProcessed++;
+                        Block parametersRow = (SingleRowBlock) readNativeValue(parametersRowType, inputPage.getBlock(1), currentPosition);
+                        executionPlan.resetRoot(
+                                (JsonNode) readNativeValue(JSON_2016, inputPage.getBlock(0), currentPosition),
+                                inputPage,
+                                currentPosition,
+                                getParametersArray(parametersRowType, parametersRow));
+                    }
+                }
+
+                // try to get output row for the current position (one position can produce multiple rows)
+                boolean gotNewRow = executionPlan.getRow();
+                if (gotNewRow) {
+                    currentPositionAlreadyProduced = true;
+                    addOutputRow();
+                }
+                else {
+                    if (outer && !currentPositionAlreadyProduced) {
+                        addNullPaddedRow();
+                    }
+                    // go to next position in the input page
+                    currentPosition++;
+                    if (currentPosition < inputPage.getPositionCount()) {
+                        currentPositionAlreadyProduced = false;
+                        totalPositionsProcessed++;
+                        Block parametersRow = (SingleRowBlock) readNativeValue(parametersRowType, inputPage.getBlock(1), currentPosition);
+                        executionPlan.resetRoot(
+                                (JsonNode) readNativeValue(JSON_2016, inputPage.getBlock(0), currentPosition),
+                                inputPage,
+                                currentPosition,
+                                getParametersArray(parametersRowType, parametersRow));
+                    }
+                    else {
+                        currentPosition = -1;
+                        return usedInput();
+                    }
+                }
+            }
+
+            return flushPageBuilder();
+        }
+
+        private TableFunctionProcessorState flushPageBuilder()
+        {
+            TableFunctionProcessorState result = produced(pageBuilder.build());
+            pageBuilder.reset();
+            return result;
+        }
+
+        private void addOutputRow()
+        {
+            pageBuilder.declarePosition();
+            for (int channel = 0; channel < properColumnsCount; channel++) {
+                writeNativeValue(pageBuilder.getType(channel), pageBuilder.getBlockBuilder(channel), newRow[channel]);
+            }
+            // pass-through index from partition start
+            BIGINT.writeLong(pageBuilder.getBlockBuilder(properColumnsCount), totalPositionsProcessed - 1);
+        }
+
+        private void addNullPaddedRow()
+        {
+            Arrays.fill(newRow, null);
+            addOutputRow();
         }
     }
 }

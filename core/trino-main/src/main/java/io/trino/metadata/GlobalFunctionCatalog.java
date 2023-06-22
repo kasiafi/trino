@@ -17,10 +17,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multimap;
+import com.google.inject.Inject;
+import com.google.inject.Provider;
 import io.trino.operator.table.ExcludeColumns.ExcludeColumnsFunctionHandle;
 import io.trino.operator.table.Sequence.SequenceFunctionHandle;
 import io.trino.operator.table.json.JsonTable.JsonTableFunctionHandle;
-import io.trino.spi.TrinoException;
 import io.trino.spi.function.AggregationFunctionMetadata;
 import io.trino.spi.function.AggregationImplementation;
 import io.trino.spi.function.BoundSignature;
@@ -38,6 +39,7 @@ import io.trino.spi.function.WindowFunctionSupplier;
 import io.trino.spi.function.table.ConnectorTableFunctionHandle;
 import io.trino.spi.function.table.TableFunctionProcessorProvider;
 import io.trino.spi.type.TypeSignature;
+import io.trino.sql.PlannerContext;
 
 import javax.annotation.concurrent.ThreadSafe;
 
@@ -54,19 +56,27 @@ import static io.trino.metadata.OperatorNameUtil.isOperatorName;
 import static io.trino.metadata.OperatorNameUtil.unmangleOperator;
 import static io.trino.operator.table.ExcludeColumns.getExcludeColumnsFunctionProcessorProvider;
 import static io.trino.operator.table.Sequence.getSequenceFunctionProcessorProvider;
-import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
+import static io.trino.operator.table.json.JsonTable.getJsonTableFunctionProcessorProvider;
 import static io.trino.spi.function.FunctionKind.AGGREGATE;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static java.util.Locale.ENGLISH;
+import static java.util.Objects.requireNonNull;
 
 @ThreadSafe
 public class GlobalFunctionCatalog
         implements FunctionProvider
 {
     public static final String BUILTIN_SCHEMA = "builtin";
+    private final Provider<PlannerContext> plannerContext;
     private volatile FunctionMap functions = new FunctionMap();
+
+    @Inject
+    public GlobalFunctionCatalog(Provider<PlannerContext> plannerContext)
+    {
+        this.plannerContext = requireNonNull(plannerContext, "plannerContext is null");
+    }
 
     public final synchronized void addFunctions(FunctionBundle functionBundle)
     {
@@ -191,7 +201,8 @@ public class GlobalFunctionCatalog
             return getSequenceFunctionProcessorProvider();
         }
         if (functionHandle instanceof JsonTableFunctionHandle) {
-            throw new TrinoException(NOT_SUPPORTED, "Json_table is not yet supported");
+            PlannerContext plannerContext = this.plannerContext.get();
+            return getJsonTableFunctionProcessorProvider(plannerContext.getMetadata(), plannerContext.getTypeManager(), plannerContext.getFunctionManager());
         }
 
         return null;

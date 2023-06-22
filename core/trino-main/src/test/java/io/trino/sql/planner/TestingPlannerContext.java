@@ -115,7 +115,9 @@ public final class TestingPlannerContext
             types.forEach(typeRegistry::addType);
             parametricTypes.forEach(typeRegistry::addParametricType);
 
-            GlobalFunctionCatalog globalFunctionCatalog = new GlobalFunctionCatalog();
+            GlobalFunctionCatalog globalFunctionCatalog = new GlobalFunctionCatalog(() -> {
+                throw new UnsupportedOperationException();
+            });
             globalFunctionCatalog.addFunctions(SystemFunctionBundle.create(featuresConfig, typeOperators, new BlockTypeOperators(typeOperators), UNKNOWN));
             functionBundles.forEach(globalFunctionCatalog::addFunctions);
 

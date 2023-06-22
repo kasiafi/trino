@@ -128,7 +128,9 @@ public class TestLocalDispatchQuery
                 metadata,
                 new FunctionManager(
                         new ConnectorCatalogServiceProvider<>("function provider", new NoConnectorServicesProvider(), ConnectorServices::getFunctionProvider),
-                        new GlobalFunctionCatalog()),
+                        new GlobalFunctionCatalog(() -> {
+                            throw new UnsupportedOperationException();
+                        })),
                 new QueryMonitorConfig());
         CreateTable createTable = new CreateTable(QualifiedName.of("table"), ImmutableList.of(), false, ImmutableList.of(), Optional.empty());
         QueryPreparer.PreparedQuery preparedQuery = new QueryPreparer.PreparedQuery(createTable, ImmutableList.of(), Optional.empty());

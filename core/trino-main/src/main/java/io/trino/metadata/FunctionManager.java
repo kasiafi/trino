@@ -331,7 +331,9 @@ public class FunctionManager
     public static FunctionManager createTestingFunctionManager()
     {
         TypeOperators typeOperators = new TypeOperators();
-        GlobalFunctionCatalog functionCatalog = new GlobalFunctionCatalog();
+        GlobalFunctionCatalog functionCatalog = new GlobalFunctionCatalog(() -> {
+            throw new UnsupportedOperationException();
+        });
         functionCatalog.addFunctions(SystemFunctionBundle.create(new FeaturesConfig(), typeOperators, new BlockTypeOperators(typeOperators), UNKNOWN));
         functionCatalog.addFunctions(new InternalFunctionBundle(new LiteralFunction(new InternalBlockEncodingSerde(new BlockEncodingManager(), TESTING_TYPE_MANAGER))));
         return new FunctionManager(CatalogServiceProvider.fail(), functionCatalog);
