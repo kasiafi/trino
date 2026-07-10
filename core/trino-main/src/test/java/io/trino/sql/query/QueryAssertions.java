@@ -198,10 +198,19 @@ public class QueryAssertions
             @Language("SQL") String expected,
             PlanMatchPattern pattern)
     {
-        assertQuery(runner.getDefaultSession(), actual, expected);
+        assertQueryAndPlan(runner.getDefaultSession(), actual, expected, pattern);
+    }
 
-        Plan plan = runner.executeWithPlan(runner.getDefaultSession(), actual).queryPlan().orElseThrow();
-        assertPlan(runner.getDefaultSession(), runner.getPlannerContext().getMetadata(), runner.getPlannerContext().getFunctionManager(), runner.getStatsCalculator(), plan, pattern);
+    public void assertQueryAndPlan(
+            Session session,
+            @Language("SQL") String actual,
+            @Language("SQL") String expected,
+            PlanMatchPattern pattern)
+    {
+        assertQuery(session, actual, expected);
+
+        Plan plan = runner.executeWithPlan(session, actual).queryPlan().orElseThrow();
+        assertPlan(session, runner.getPlannerContext().getMetadata(), runner.getPlannerContext().getFunctionManager(), runner.getStatsCalculator(), plan, pattern);
     }
 
     private void assertQuery(Session session, @Language("SQL") String actual, @Language("SQL") String expected)

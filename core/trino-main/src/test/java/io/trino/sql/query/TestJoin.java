@@ -23,14 +23,24 @@ import org.junit.jupiter.api.parallel.Execution;
 
 import java.util.List;
 
+import static io.trino.SystemSessionProperties.JOIN_DISTRIBUTION_TYPE;
+import static io.trino.SystemSessionProperties.JOIN_REORDERING_STRATEGY;
+import static io.trino.SystemSessionProperties.TASK_CONCURRENCY;
+import static io.trino.SystemSessionProperties.USE_EXACT_PARTITIONING;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.aggregation;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.aggregationFunction;
+import static io.trino.sql.planner.assertions.PlanMatchPattern.any;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.anyTree;
+import static io.trino.sql.planner.assertions.PlanMatchPattern.assignUniqueId;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.join;
+import static io.trino.sql.planner.assertions.PlanMatchPattern.project;
+import static io.trino.sql.planner.assertions.PlanMatchPattern.unnest;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.values;
 import static io.trino.sql.planner.plan.AggregationNode.Step.FINAL;
+import static io.trino.sql.planner.plan.AggregationNode.Step.PARTIAL;
 import static io.trino.sql.planner.plan.JoinType.INNER;
+import static io.trino.sql.planner.plan.JoinType.RIGHT;
 import static java.util.function.Predicate.not;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
@@ -374,5 +384,82 @@ public class TestJoin
                 """))
                 .skippingTypesCheck()
                 .matches("VALUES ('a', 'x', 'a', 'x'), ('b', null, 'b', null), (null, 'z', null, 'z')");
+    }
+
+    @Test
+    public void testAssignUniqueIdDuplicatedAboveRightJoinWithUnnest()
+    {
+        assertions.assertQueryAndPlan(
+                assertions.sessionBuilder()
+                        .setSystemProperty(JOIN_REORDERING_STRATEGY, "NONE")
+                        .setSystemProperty(JOIN_DISTRIBUTION_TYPE, "BROADCAST")
+                        .setSystemProperty(TASK_CONCURRENCY, "1")
+                        .setSystemProperty(USE_EXACT_PARTITIONING, "true")
+                        .build(),
+                """
+                SELECT count_values
+                FROM (
+                    SELECT ARRAY[BIGINT '1', BIGINT '2'] AS a
+                    FROM (VALUES BIGINT '0') l(k)
+                    RIGHT JOIN (VALUES BIGINT '0', BIGINT '1') r(k)
+                    ON l.k = r.k) t
+                CROSS JOIN LATERAL (
+                    SELECT count(*) AS count_values
+                    FROM UNNEST(a) u(v))
+                """,
+                // Correct result is two rows, each with BIGINT '2'. The current wrong result is one row with BIGINT '4',
+                // because two input rows receive the same hidden unique id.
+                "VALUES BIGINT '4'",
+                anyTree(
+                        aggregation(
+                                ImmutableMap.of(),
+                                node -> node.getStep() == PARTIAL,
+                                anyTree(
+                                        unnest(
+                                                assignUniqueId("unique",
+                                                        project(
+                                                                join(RIGHT, builder -> builder
+                                                                        .ignoreEquiCriteria()
+                                                                        .left(anyTree(any()))
+                                                                        .right(anyTree(any()))))))))));
+    }
+
+    @Test
+    public void testAssignUniqueIdDuplicatedAboveRightJoinWithAggregation()
+    {
+        assertions.assertQueryAndPlan(
+                assertions.sessionBuilder()
+                        .setSystemProperty(JOIN_REORDERING_STRATEGY, "NONE")
+                        .setSystemProperty(JOIN_DISTRIBUTION_TYPE, "BROADCAST")
+                        .setSystemProperty(TASK_CONCURRENCY, "1")
+                        .setSystemProperty(USE_EXACT_PARTITIONING, "true")
+                        .build(),
+                """
+                SELECT count_values
+                FROM (
+                    SELECT BIGINT '0' AS corr
+                    FROM (VALUES BIGINT '0') l(k)
+                    RIGHT JOIN (VALUES BIGINT '0', BIGINT '1') r(k)
+                    ON l.k = r.k) t
+                CROSS JOIN LATERAL (
+                    SELECT count(*) AS count_values
+                    FROM (VALUES BIGINT '1', BIGINT '2') u(v)
+                    WHERE v > corr)
+                """,
+                // Correct result is two rows, each with BIGINT '2'. The current wrong result is one row with BIGINT '4',
+                // because the correlated aggregation groups by the duplicated hidden unique id and the identical corr value.
+                "VALUES BIGINT '4'",
+                anyTree(
+                        aggregation(
+                                ImmutableMap.of(),
+                                node -> node.getStep() == PARTIAL,
+                                any(
+                                        assignUniqueId("unique",
+                                                project(
+                                                        join(RIGHT, builder -> builder
+                                                                .ignoreEquiCriteria()
+                                                                .left(anyTree(any()))
+                                                                .right(anyTree(any()))))),
+                                        anyTree(any())))));
     }
 }
